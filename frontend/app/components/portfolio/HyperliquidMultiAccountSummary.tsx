@@ -332,7 +332,7 @@ export default function HyperliquidMultiAccountSummary({
     return (
       <Card className="p-6">
         <div className="text-sm text-muted-foreground">
-          {t('account.noAccountsConfigured', 'No Hyperliquid accounts configured')}
+          {t('account.noAccountsConfigured', 'No accounts configured')}
         </div>
       </Card>
     )

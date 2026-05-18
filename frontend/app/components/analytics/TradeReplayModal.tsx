@@ -756,7 +756,12 @@ Trade #${tradeData.trade.id} ${tradeData.trade.symbol}:
           <Input
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && (e.ctrlKey || e.metaKey) && sendMessage()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                sendMessage()
+              }
+            }}
             placeholder={t('attribution.replay.typeQuestion', 'Type a question...')}
             disabled={loading || !selectedAccountId}
             className="text-sm rounded-xl"

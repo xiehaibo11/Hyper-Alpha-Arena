@@ -28,6 +28,7 @@ export interface HyperliquidPosition {
   coin: string;
   szi: number; // signed size (positive = long, negative = short)
   entryPx: number; // entry price
+  markPx?: number; // mark price
   positionValue: number;
   unrealizedPnl: number;
   marginUsed: number;

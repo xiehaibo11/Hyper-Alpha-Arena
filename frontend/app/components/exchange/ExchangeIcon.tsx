@@ -38,6 +38,15 @@ export default function ExchangeIcon({ exchangeId, className = '', size = 16 }: 
         className={className}
       />
     ),
+    okx: (
+      <img
+        src="/static/okx_logo.svg"
+        alt="OKX"
+        width={size}
+        height={size}
+        className={className}
+      />
+    ),
     aster: (
       <svg
         width={size}

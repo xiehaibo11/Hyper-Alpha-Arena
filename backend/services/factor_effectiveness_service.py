@@ -69,7 +69,7 @@ class FactorEffectivenessService:
     def _run(self):
         db: Session = SessionLocal()
         try:
-            for ex in ["hyperliquid", "binance"]:
+            for ex in ["hyperliquid", "binance", "okx"]:
                 self.compute_for_exchange(db, ex)
         except Exception as e:
             logger.error(f"[FactorEffectiveness] error: {e}")
@@ -197,6 +197,8 @@ class FactorEffectivenessService:
         try:
             if exchange == "binance":
                 from services.binance_symbol_service import get_selected_symbols
+            elif exchange == "okx":
+                from services.okx_symbol_service import get_selected_symbols
             else:
                 from services.hyperliquid_symbol_service import get_selected_symbols
             return get_selected_symbols()

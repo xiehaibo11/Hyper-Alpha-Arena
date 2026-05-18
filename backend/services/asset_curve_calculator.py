@@ -9,7 +9,7 @@ import threading
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 
-from sqlalchemy import cast, func
+from sqlalchemy import cast, func, inspect
 from sqlalchemy.orm import Session, aliased
 from sqlalchemy.types import Integer
 
@@ -240,6 +240,10 @@ def _build_hyperliquid_asset_curve(
     snapshot_db = SnapshotSessionLocal()
 
     try:
+        if not inspect(snapshot_db.bind).has_table(HyperliquidAccountSnapshot.__tablename__):
+            logger.info("Hyperliquid snapshot table is not present; skipping Hyperliquid asset curve data")
+            return []
+
         # Get all active AI accounts (or specific account)
         # Note: We don't filter by environment at Account level anymore (multi-wallet architecture)
         # Instead, we rely on HyperliquidAccountSnapshot filtering by environment

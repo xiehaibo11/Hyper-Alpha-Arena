@@ -49,6 +49,9 @@ TIMEFRAME_MS = {
     "8h": 8 * 60 * 60 * 1000,
     "12h": 12 * 60 * 60 * 1000,
     "1d": 24 * 60 * 60 * 1000,
+    "3d": 3 * 24 * 60 * 60 * 1000,
+    "1w": 7 * 24 * 60 * 60 * 1000,
+    "1M": 30 * 24 * 60 * 60 * 1000,
 }
 
 
@@ -128,7 +131,7 @@ def floor_timestamp(ts_ms: int, interval_ms: int) -> int:
 @router.get("/summary", response_model=MarketFlowSummaryResponse)
 async def get_market_flow_summary(
     symbols: str = Query(..., description="Comma-separated symbols, e.g. BTC,ETH"),
-    exchange: str = Query("hyperliquid", description="Exchange: hyperliquid or binance"),
+    exchange: str = Query("hyperliquid", description="Exchange: hyperliquid, binance, or okx"),
     window: str = Query("1h", description="Summary window"),
     end_time: Optional[int] = Query(None, description="End timestamp in ms"),
     db: Session = Depends(get_db)
@@ -154,7 +157,7 @@ async def get_market_flow_summary(
         raise HTTPException(status_code=400, detail="Too many symbols requested")
 
     exchange = exchange.lower()
-    if exchange not in {"hyperliquid", "binance"}:
+    if exchange not in {"hyperliquid", "binance", "okx"}:
         raise HTTPException(status_code=400, detail="Invalid exchange")
 
     if end_time is None:
@@ -183,7 +186,7 @@ async def get_market_flow_summary(
 @router.get("/large-order-zones", response_model=LargeOrderZoneResponse)
 async def get_large_order_zones(
     symbol: str = Query(..., description="Trading symbol, e.g. BTC"),
-    exchange: str = Query("hyperliquid", description="Exchange: hyperliquid or binance"),
+    exchange: str = Query("hyperliquid", description="Exchange: hyperliquid, binance, or okx"),
     timeframe: str = Query("15m", description="Aggregation timeframe"),
     start_time: Optional[int] = Query(None, description="Start timestamp in ms"),
     end_time: Optional[int] = Query(None, description="End timestamp in ms"),
@@ -200,7 +203,7 @@ async def get_large_order_zones(
         )
 
     exchange = exchange.lower()
-    if exchange not in {"hyperliquid", "binance"}:
+    if exchange not in {"hyperliquid", "binance", "okx"}:
         raise HTTPException(status_code=400, detail="Invalid exchange")
 
     interval_ms = TIMEFRAME_MS[timeframe]
@@ -252,7 +255,7 @@ async def get_large_order_zones(
 @router.get("/indicators", response_model=MarketFlowResponse)
 async def get_market_flow_indicators(
     symbol: str = Query(..., description="Trading symbol, e.g., BTC"),
-    exchange: str = Query("hyperliquid", description="Exchange: hyperliquid or binance"),
+    exchange: str = Query("hyperliquid", description="Exchange: hyperliquid, binance, or okx"),
     timeframe: str = Query("1h", description="Aggregation timeframe"),
     start_time: Optional[int] = Query(None, description="Start timestamp in ms"),
     end_time: Optional[int] = Query(None, description="End timestamp in ms"),

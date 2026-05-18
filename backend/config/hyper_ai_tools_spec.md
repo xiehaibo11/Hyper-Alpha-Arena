@@ -64,7 +64,7 @@ This document defines the detailed specifications for all Hyper AI tools.
 **Parameters**:
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| exchange | string | No | "hyperliquid" or "binance" (default: all) |
+| exchange | string | No | "hyperliquid", "binance", or "okx" (default: all) |
 | environment | string | No | "testnet" or "mainnet" (default: all) |
 
 **Implementation**:
@@ -159,7 +159,7 @@ Or for program:
 | symbol | string | Yes | Trading symbol (e.g., BTC, ETH) |
 | period | string | No | 1m, 5m, 15m, 1h, 4h, 1d (default: 1h) |
 | limit | int | No | Number of candles (default: 50, max: 200) |
-| exchange | string | No | hyperliquid or binance (default: hyperliquid) |
+| exchange | string | No | hyperliquid, binance, or okx (default: hyperliquid) |
 
 **Implementation**:
 ```python
@@ -384,7 +384,7 @@ Or for program:
 | symbols | array | Yes | Symbols to monitor ["BTC", "ETH"] |
 | signal_ids | array | Yes | Signal definition IDs to include |
 | logic | string | No | "AND" or "OR" (default: OR) |
-| exchange | string | No | "hyperliquid" or "binance" (default: hyperliquid) |
+| exchange | string | No | "hyperliquid", "binance", or "okx" (default: hyperliquid) |
 | enabled | bool | No | Enable/disable pool (default: true) |
 
 **Implementation**:
@@ -499,7 +499,7 @@ Or for program:
 | api_key | string | Yes | LLM API key |
 | strategy_type | string | Yes | "prompt" or "program" |
 | strategy_id | int | Yes | Prompt ID or Program ID to bind |
-| exchange | string | Yes | "hyperliquid" or "binance" |
+| exchange | string | Yes | "hyperliquid", "binance", or "okx" |
 | signal_pool_ids | array | No | Signal pool IDs for trigger |
 | trigger_interval | int | No | Scheduled trigger interval (seconds) |
 | scheduled_trigger_enabled | bool | No | Enable scheduled trigger |

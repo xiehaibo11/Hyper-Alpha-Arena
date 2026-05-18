@@ -122,9 +122,23 @@ export async function getHyperliquidPositions(
     params.append('force_refresh', 'true');
   }
   const query = params.toString() ? `?${params.toString()}` : '';
-  const response = await apiRequest(
-    `${HYPERLIQUID_API_BASE}/accounts/${accountId}/positions${query}`
-  );
+  let response: Response;
+  try {
+    response = await apiRequest(
+      `${HYPERLIQUID_API_BASE}/accounts/${accountId}/positions${query}`
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes('No wallet configured')) {
+      return {
+        positions: [],
+        count: 0,
+        environment,
+        source: 'live',
+      };
+    }
+    throw error;
+  }
   const data = await response.json();
   const positions = Array.isArray(data.positions) ? data.positions : [];
 
@@ -133,11 +147,13 @@ export async function getHyperliquidPositions(
       coin: pos.coin ?? pos.symbol ?? '',
       szi: Number(pos.szi ?? pos.contracts ?? 0),
       entryPx: Number(pos.entry_px ?? pos.entryPx ?? 0),
+      markPx: Number(pos.mark_price ?? pos.markPx ?? 0),
       positionValue: Number(pos.position_value ?? pos.positionValue ?? 0),
       unrealizedPnl: Number(pos.unrealized_pnl ?? pos.unrealizedPnl ?? 0),
       marginUsed: Number(pos.margin_used ?? pos.marginUsed ?? 0),
       liquidationPx: Number(pos.liquidation_px ?? pos.liquidationPx ?? 0),
       leverage: Number(pos.leverage ?? 1),
+      side: pos.side,
     })),
     count: data.count ?? positions.length,
     environment: data.environment,
@@ -669,11 +685,13 @@ export async function getBinancePositions(
       coin: pos.coin ?? pos.symbol ?? '',
       szi: Number(pos.szi ?? 0),
       entryPx: Number(pos.entry_px ?? pos.entryPx ?? 0),
+      markPx: Number(pos.mark_price ?? pos.markPx ?? 0),
       positionValue: Number(pos.position_value ?? pos.positionValue ?? 0),
       unrealizedPnl: Number(pos.unrealized_pnl ?? pos.unrealizedPnl ?? 0),
       marginUsed: Number(pos.margin_used ?? pos.marginUsed ?? 0),
       liquidationPx: Number(pos.liquidation_px ?? pos.liquidationPx ?? 0),
       leverage: Number(pos.leverage ?? 1),
+      side: pos.side,
     })),
     count: positions.length,
     environment: data.environment,

@@ -12,8 +12,9 @@ import time
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import desc
+from sqlalchemy import desc, inspect as sa_inspect
 
+from api.arena_ai_routes import router as arena_ai_router
 from database.connection import SessionLocal
 from database.snapshot_connection import SnapshotSessionLocal
 from database.models import (
@@ -44,6 +45,7 @@ import logging
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/arena", tags=["arena"])
+router.include_router(arena_ai_router)
 
 
 def get_db():
@@ -579,20 +581,35 @@ def get_completed_trades(
     if trading_mode in ("testnet", "mainnet"):
         snapshot_db = SnapshotSessionLocal()
         try:
-            query = snapshot_db.query(HyperliquidTrade).order_by(desc(HyperliquidTrade.trade_time))
-            # Strictly filter by environment and exclude NULL
-            query = query.filter(
-                HyperliquidTrade.environment == trading_mode,
-                HyperliquidTrade.environment.isnot(None)
-            )
-            if account_id:
-                query = query.filter(HyperliquidTrade.account_id == account_id)
-            if wallet_address:
-                query = query.filter(HyperliquidTrade.wallet_address == wallet_address)
-            if symbol:
-                query = query.filter(HyperliquidTrade.symbol == symbol)
+            snapshot_bind = snapshot_db.get_bind()
+            if not sa_inspect(snapshot_bind).has_table(HyperliquidTrade.__tablename__):
+                logger.warning(
+                    "Snapshot table %s is missing; returning empty arena trades",
+                    HyperliquidTrade.__tablename__,
+                )
+                hyper_trades = []
+            else:
+                query = snapshot_db.query(HyperliquidTrade).order_by(desc(HyperliquidTrade.trade_time))
+                # Strictly filter by environment and exclude NULL
+                query = query.filter(
+                    HyperliquidTrade.environment == trading_mode,
+                    HyperliquidTrade.environment.isnot(None)
+                )
+                if account_id:
+                    query = query.filter(HyperliquidTrade.account_id == account_id)
+                if wallet_address:
+                    query = query.filter(HyperliquidTrade.wallet_address == wallet_address)
+                if symbol:
+                    query = query.filter(HyperliquidTrade.symbol == symbol)
 
-            hyper_trades = query.limit(limit).all()
+                hyper_trades = query.limit(limit).all()
+        except Exception:
+            logger.error(
+                "Failed to query Hyperliquid snapshot trades for trading_mode=%s",
+                trading_mode,
+                exc_info=True,
+            )
+            hyper_trades = []
         finally:
             snapshot_db.close()
 
@@ -1105,7 +1122,11 @@ def get_model_chat(
                     if log_dt.tzinfo is None:
                         log_dt = log_dt.replace(tzinfo=timezone.utc)
                     try:
-                        trigger_latency = abs((log_dt - last_dt).total_seconds())
+                        # last_trigger_at is live strategy state, not a foreign key
+                        # to this historical decision. If it is newer than the
+                        # log, it belongs to an in-progress/later trigger.
+                        if last_dt <= log_dt:
+                            trigger_latency = (log_dt - last_dt).total_seconds()
                     except Exception:
                         trigger_latency = None
 
@@ -1375,654 +1396,15 @@ def check_pnl_sync_status(
     trading_mode: Optional[str] = Query(None, regex="^(paper|testnet|mainnet)$"),
     db: Session = Depends(get_db),
 ):
-    """
-    Check if there are trades that need PnL synchronization.
-    Returns the count of unsynchronized trades for both AI Decision and Program.
-    Only counts trades that have order IDs (can be synced).
-    """
-    from sqlalchemy import or_
-    from database.models import ProgramExecutionLog
+    """Check if there are trades that need PnL synchronization."""
+    from services.arena_pnl_sync_service import check_pnl_sync_status as check_status
 
-    # Check AI Decision logs
-    ai_query = db.query(AIDecisionLog).filter(
-        AIDecisionLog.operation.in_(["buy", "sell", "close"]),
-        AIDecisionLog.executed == "true",
-        AIDecisionLog.pnl_updated_at == None,
-        or_(
-            AIDecisionLog.hyperliquid_order_id != None,
-            AIDecisionLog.tp_order_id != None,
-            AIDecisionLog.sl_order_id != None,
-        ),
-    )
-
-    if trading_mode:
-        if trading_mode == "paper":
-            ai_query = ai_query.filter(AIDecisionLog.hyperliquid_environment == None)
-        else:
-            ai_query = ai_query.filter(AIDecisionLog.hyperliquid_environment == trading_mode)
-    else:
-        ai_query = ai_query.filter(AIDecisionLog.hyperliquid_environment.isnot(None))
-
-    ai_unsync_count = ai_query.count()
-
-    # Check Program execution logs
-    prog_query = db.query(ProgramExecutionLog).filter(
-        ProgramExecutionLog.success == True,
-        ProgramExecutionLog.decision_action.in_(["buy", "sell", "close"]),
-        ProgramExecutionLog.pnl_updated_at == None,
-        or_(
-            ProgramExecutionLog.hyperliquid_order_id != None,
-            ProgramExecutionLog.tp_order_id != None,
-            ProgramExecutionLog.sl_order_id != None,
-        ),
-    )
-
-    if trading_mode:
-        if trading_mode == "paper":
-            prog_query = prog_query.filter(ProgramExecutionLog.environment == None)
-        else:
-            prog_query = prog_query.filter(ProgramExecutionLog.environment == trading_mode)
-    else:
-        prog_query = prog_query.filter(ProgramExecutionLog.environment.isnot(None))
-
-    prog_unsync_count = prog_query.count()
-
-    total_unsync = ai_unsync_count + prog_unsync_count
-
-    return {
-        "needs_sync": total_unsync > 0,
-        "unsync_count": total_unsync,
-        "ai_unsync_count": ai_unsync_count,
-        "program_unsync_count": prog_unsync_count,
-    }
+    return check_status(db=db, trading_mode=trading_mode)
 
 
 @router.post("/update-pnl")
 def update_pnl_data(db: Session = Depends(get_db)):
-    """
-    Update realized PnL and fee data for all trades by fetching from exchange APIs.
+    """Update realized PnL and fee data by fetching exchange fills."""
+    from services.arena_pnl_sync_service import update_pnl_data as update_pnl
 
-    This endpoint:
-    1. Fetches user_fills from all configured wallets (Hyperliquid + Binance, testnet + mainnet)
-    2. Updates HyperliquidTrade.fee with actual fee data
-    3. Creates missing HyperliquidTrade records for resting orders that later filled
-    4. Updates AIDecisionLog.realized_pnl for closed positions
-
-    Returns summary of updated records.
-    """
-    from database.models import (
-        HyperliquidWallet,
-        BinanceWallet,
-        AccountPromptBinding,
-        AIDecisionLog,
-        ProgramExecutionLog,
-    )
-    from services.hyperliquid_environment import get_hyperliquid_client
-    from decimal import Decimal
-    from collections import defaultdict
-    from sqlalchemy import or_
-
-    result = {
-        "success": True,
-        "hyperliquid": {},
-        "binance": {},
-        "errors": [],
-    }
-
-    snapshot_db = SnapshotSessionLocal()
-
-    try:
-        # ========== Process Hyperliquid wallets ==========
-        hl_wallets = db.query(HyperliquidWallet).all()
-        if hl_wallets:
-            hl_wallet_configs = {}
-            fetched_historical_addresses = set()
-            for w in hl_wallets:
-                key = (w.account_id, w.environment)
-                if key not in hl_wallet_configs:
-                    hl_wallet_configs[key] = w
-
-            all_hl_fills_by_env = defaultdict(list)
-            for (account_id, environment), wallet in hl_wallet_configs.items():
-                try:
-                    client = get_hyperliquid_client(db, account_id, override_environment=environment)
-                    fills = client._get_user_fills(db)
-                    all_hl_fills_by_env[environment].extend(fills)
-                    logger.info(f"[Hyperliquid] Fetched {len(fills)} fills for account {account_id} on {environment}")
-
-                    current_query_addresses = {client.query_address.lower()}
-                    if getattr(client, "wallet_address", None):
-                        current_query_addresses.add(client.wallet_address.lower())
-
-                    historical_addresses = set()
-
-                    ai_rows = db.query(AIDecisionLog.wallet_address).filter(
-                        AIDecisionLog.account_id == account_id,
-                        AIDecisionLog.hyperliquid_environment == environment,
-                        AIDecisionLog.executed == "true",
-                        AIDecisionLog.pnl_updated_at == None,
-                        AIDecisionLog.wallet_address.isnot(None),
-                        or_(
-                            AIDecisionLog.hyperliquid_order_id != None,
-                            AIDecisionLog.tp_order_id != None,
-                            AIDecisionLog.sl_order_id != None,
-                        ),
-                    ).distinct().all()
-                    historical_addresses.update(
-                        addr.lower()
-                        for (addr,) in ai_rows
-                        if addr and addr.lower() not in current_query_addresses
-                    )
-
-                    prog_rows = db.query(ProgramExecutionLog.wallet_address).filter(
-                        ProgramExecutionLog.account_id == account_id,
-                        ProgramExecutionLog.environment == environment,
-                        ProgramExecutionLog.success == True,
-                        ProgramExecutionLog.pnl_updated_at == None,
-                        ProgramExecutionLog.wallet_address.isnot(None),
-                        or_(
-                            ProgramExecutionLog.hyperliquid_order_id != None,
-                            ProgramExecutionLog.tp_order_id != None,
-                            ProgramExecutionLog.sl_order_id != None,
-                        ),
-                    ).distinct().all()
-                    historical_addresses.update(
-                        addr.lower()
-                        for (addr,) in prog_rows
-                        if addr and addr.lower() not in current_query_addresses
-                    )
-
-                    for historical_address in sorted(historical_addresses):
-                        historical_key = (environment, historical_address)
-                        if historical_key in fetched_historical_addresses:
-                            continue
-                        try:
-                            historical_fills = client.sdk_info.user_fills(historical_address)
-                            all_hl_fills_by_env[environment].extend(historical_fills)
-                            fetched_historical_addresses.add(historical_key)
-                            logger.info(
-                                f"[Hyperliquid] Fetched {len(historical_fills)} historical fills "
-                                f"for address {historical_address} on {environment}"
-                            )
-                        except Exception as historical_err:
-                            logger.warning(
-                                f"[Hyperliquid] Failed to fetch historical fills for address "
-                                f"{historical_address} on {environment}: {historical_err}"
-                            )
-                except Exception as e:
-                    error_msg = f"[Hyperliquid] Failed to fetch fills for account {account_id} on {environment}: {str(e)}"
-                    logger.warning(error_msg)
-                    result["errors"].append(error_msg)
-
-            for environment, fills in all_hl_fills_by_env.items():
-                env_result = _process_fills_for_environment(
-                    db, snapshot_db, environment, fills, hl_wallet_configs, exchange="hyperliquid"
-                )
-                result["hyperliquid"][environment] = env_result
-
-        # ========== Process Binance wallets ==========
-        bn_wallets = db.query(BinanceWallet).filter(BinanceWallet.is_active == "true").all()
-        if bn_wallets:
-            from services.binance_trading_client import BinanceTradingClient
-            from utils.encryption import decrypt_private_key
-
-            bn_wallet_configs = {}
-            for w in bn_wallets:
-                key = (w.account_id, w.environment)
-                if key not in bn_wallet_configs:
-                    bn_wallet_configs[key] = w
-
-            all_bn_fills_by_env = defaultdict(list)
-            for (account_id, environment), wallet in bn_wallet_configs.items():
-                try:
-                    api_key = decrypt_private_key(wallet.api_key_encrypted)
-                    secret_key = decrypt_private_key(wallet.secret_key_encrypted)
-                    client = BinanceTradingClient(api_key, secret_key, environment)
-                    fills = client.get_user_fills()
-                    all_bn_fills_by_env[environment].extend(fills)
-                    logger.info(f"[Binance] Fetched {len(fills)} fills for account {account_id} on {environment}")
-                except Exception as e:
-                    error_msg = f"[Binance] Failed to fetch fills for account {account_id} on {environment}: {str(e)}"
-                    logger.warning(error_msg)
-                    result["errors"].append(error_msg)
-
-            for environment, fills in all_bn_fills_by_env.items():
-                env_result = _process_fills_for_environment(
-                    db, snapshot_db, environment, fills, bn_wallet_configs, exchange="binance"
-                )
-                result["binance"][environment] = env_result
-
-        # Commit all changes
-        snapshot_db.commit()
-        db.commit()
-
-    except Exception as e:
-        logger.error(f"Error updating PnL data: {e}", exc_info=True)
-        result["success"] = False
-        result["errors"].append(str(e))
-        snapshot_db.rollback()
-        db.rollback()
-    finally:
-        snapshot_db.close()
-
-    return result
-
-
-def _process_fills_for_environment(
-    db: Session,
-    snapshot_db: Session,
-    environment: str,
-    fills: List[dict],
-    wallet_configs: dict,
-    exchange: str = "hyperliquid",
-) -> dict:
-    """
-    Process fills for a specific environment and update database records.
-
-    This function:
-    1. Updates existing HyperliquidTrade records with fee data
-    2. Creates missing HyperliquidTrade records for resting orders that later filled
-    3. Updates AIDecisionLog/ProgramExecutionLog.realized_pnl for closed positions
-
-    Args:
-        exchange: "hyperliquid" or "binance" - determines which wallet to use for API calls
-
-    Returns summary of updates.
-    """
-    from decimal import Decimal
-    from collections import defaultdict
-
-    result = {
-        "fills_count": len(fills),
-        "unique_orders": 0,
-        "trades_updated": 0,
-        "trades_created": 0,
-        "decisions_updated": 0,
-        "program_logs_updated": 0,
-        "skipped": 0,
-    }
-
-    if not fills:
-        return result
-
-    # Aggregate fills by order ID
-    # One order can have multiple fills (partial executions)
-    order_aggregates = defaultdict(lambda: {
-        "total_fee": Decimal("0"),
-        "total_pnl": Decimal("0"),
-        "fills": [],
-    })
-
-    # For Binance: build mapping from main_order_id to TP/SL order_ids
-    # This allows us to match TP/SL fills to the decision that created them
-    binance_tpsl_to_main = {}  # TP/SL order_id -> main_order_id
-
-    for fill in fills:
-        oid = str(fill.get("oid", ""))
-        if not oid:
-            continue
-
-        fee = Decimal(str(fill.get("fee", "0")))
-        closed_pnl = Decimal(str(fill.get("closedPnl", "0")))
-
-        order_aggregates[oid]["total_fee"] += fee
-        order_aggregates[oid]["total_pnl"] += closed_pnl
-        order_aggregates[oid]["fills"].append(fill)
-
-        # For Binance TP/SL orders, record the mapping to main order
-        if exchange == "binance" and fill.get("main_order_id"):
-            binance_tpsl_to_main[oid] = fill.get("main_order_id")
-
-    result["unique_orders"] = len(order_aggregates)
-
-    # Update HyperliquidTrade records
-    trades = snapshot_db.query(HyperliquidTrade).filter(
-        HyperliquidTrade.environment == environment
-    ).all()
-
-    for trade in trades:
-        order_id = str(trade.order_id)
-        if order_id in order_aggregates:
-            agg = order_aggregates[order_id]
-            # Update fee
-            if trade.fee != agg["total_fee"]:
-                trade.fee = agg["total_fee"]
-                result["trades_updated"] += 1
-        else:
-            result["skipped"] += 1
-
-    # Collect existing trade order_ids for deduplication
-    existing_trade_order_ids = {str(t.order_id) for t in trades if t.order_id}
-    # For Binance: also build order_id -> trade mapping for updates
-    existing_trades_by_order_id = {str(t.order_id): t for t in trades if t.order_id}
-
-    # Helper function to get order trigger time from Hyperliquid API (only for Hyperliquid)
-    def get_order_trigger_time(account_id: int, order_id: str) -> Optional[datetime]:
-        """Get actual trigger time for TP/SL order from Hyperliquid API."""
-        if exchange != "hyperliquid":
-            return None  # Binance doesn't have this API
-        key = (account_id, environment)
-        if key not in wallet_configs:
-            return None
-        try:
-            client = get_hyperliquid_client(db, account_id, override_environment=environment)
-            return client.get_order_trigger_time(db, int(order_id))
-        except Exception as e:
-            logger.warning(f"Failed to get trigger time for order {order_id}: {e}")
-            return None
-
-    # Update AIDecisionLog records
-    # Match by hyperliquid_order_id, tp_order_id, sl_order_id and accumulate PnL
-    decisions = db.query(AIDecisionLog).filter(
-        AIDecisionLog.operation.in_(["buy", "sell", "close"]),
-        AIDecisionLog.executed == "true",
-        AIDecisionLog.hyperliquid_environment == environment,
-    ).all()
-
-    # Build order_id -> decision mapping for creating missing trades
-    order_to_decision = {}
-    for decision in decisions:
-        for oid in [decision.hyperliquid_order_id, decision.tp_order_id, decision.sl_order_id]:
-            if oid:
-                order_to_decision[str(oid)] = decision
-
-    # For Binance: also map triggered order IDs to their decisions
-    # Binance TP/SL triggered orders have different IDs than the algo order IDs stored in decision
-    if exchange == "binance":
-        for triggered_oid, main_oid in binance_tpsl_to_main.items():
-            # Find the decision that has this main_order_id
-            decision = order_to_decision.get(main_oid)
-            if decision and triggered_oid not in order_to_decision:
-                order_to_decision[triggered_oid] = decision
-
-    # Also build order_id -> program_log mapping for Program Trader orders
-    from database.models import ProgramExecutionLog
-    program_logs = db.query(ProgramExecutionLog).filter(
-        ProgramExecutionLog.success == True,
-        ProgramExecutionLog.decision_action.in_(["buy", "sell", "close"]),
-    ).all()
-
-    order_to_program_log = {}
-    for pl in program_logs:
-        for oid in [pl.hyperliquid_order_id, pl.tp_order_id, pl.sl_order_id]:
-            if oid:
-                order_to_program_log[str(oid)] = pl
-
-    # For Binance: also map triggered order IDs to their program logs
-    if exchange == "binance":
-        for triggered_oid, main_oid in binance_tpsl_to_main.items():
-            pl = order_to_program_log.get(main_oid)
-            if pl and triggered_oid not in order_to_program_log:
-                order_to_program_log[triggered_oid] = pl
-
-    # Create missing HyperliquidTrade records for resting orders that later filled
-    # For Binance: also update existing records with official fill data
-    # Check both AIDecisionLog and ProgramExecutionLog
-    for oid, agg in order_aggregates.items():
-        existing_trade = existing_trades_by_order_id.get(oid) if exchange == "binance" else None
-
-        # For Hyperliquid: skip if already exists
-        # For Binance: allow update of existing records
-        if oid in existing_trade_order_ids and exchange != "binance":
-            continue  # Already exists (Hyperliquid only)
-
-        # Try to find source: AIDecisionLog or ProgramExecutionLog
-        decision = order_to_decision.get(oid)
-        program_log = order_to_program_log.get(oid)
-
-        if not decision and not program_log:
-            continue  # Not from any known source
-        fills_list = agg["fills"]
-        if not fills_list:
-            continue
-
-        # Aggregate fill data for this order
-        total_qty = Decimal("0")
-        total_value = Decimal("0")
-        latest_time = None
-
-        for fill in fills_list:
-            qty = Decimal(str(fill.get("sz", "0")))
-            px = Decimal(str(fill.get("px", "0")))
-            total_qty += qty
-            total_value += qty * px
-
-            fill_time = fill.get("time")
-            if fill_time and (latest_time is None or fill_time > latest_time):
-                latest_time = fill_time
-
-        if total_qty == 0:
-            continue
-
-        avg_price = total_value / total_qty
-
-        # Determine side from decision/program_log operation, NOT from exchange fill side
-        # Exchange returns B/S (buy/sell), but we want to preserve the original operation (buy/sell/close)
-        if decision:
-            side = decision.operation.lower() if decision.operation else "sell"
-        elif program_log:
-            side = program_log.decision_action.lower() if program_log.decision_action else "sell"
-        else:
-            # Fallback to exchange side (should not reach here due to earlier check)
-            fill_side = fills_list[0].get("side", "B")
-            side = "buy" if fill_side == "B" else "sell"
-
-        # Parse trade time
-        trade_time = None
-        if latest_time:
-            try:
-                trade_time = datetime.fromtimestamp(latest_time / 1000, tz=timezone.utc)
-            except Exception:
-                trade_time = datetime.utcnow()
-        else:
-            trade_time = datetime.utcnow()
-
-        # Get account_id, wallet_address, symbol from either source
-        if decision:
-            account_id = decision.account_id
-            wallet_address = decision.wallet_address
-            symbol = decision.symbol or fills_list[0].get("coin", "")
-            source_info = f"decision {decision.id}"
-        else:
-            account_id = program_log.account_id
-            wallet_address = program_log.wallet_address
-            symbol = program_log.decision_symbol or fills_list[0].get("coin", "")
-            source_info = f"program_log {program_log.id}"
-
-        # For Binance: update existing record with official fill data
-        if existing_trade and exchange == "binance":
-            existing_trade.quantity = total_qty
-            existing_trade.price = avg_price
-            existing_trade.trade_value = total_value
-            existing_trade.fee = agg["total_fee"]
-            existing_trade.order_status = "filled"
-            if trade_time:
-                existing_trade.trade_time = trade_time
-            result["trades_updated"] += 1
-            logger.info(f"Updated HyperliquidTrade for Binance order {oid} with official fill data")
-            continue
-
-        # Create new HyperliquidTrade record
-        new_trade = HyperliquidTrade(
-            account_id=account_id,
-            environment=environment,
-            wallet_address=wallet_address,
-            symbol=symbol,
-            side=side,
-            quantity=total_qty,
-            price=avg_price,
-            leverage=1,
-            order_id=oid,
-            order_status="filled",
-            trade_value=total_value,
-            fee=agg["total_fee"],
-            trade_time=trade_time,
-        )
-        snapshot_db.add(new_trade)
-        existing_trade_order_ids.add(oid)  # Prevent duplicates in same run
-        result["trades_created"] += 1
-        logger.info(f"Created missing HyperliquidTrade for order {oid}, {source_info}")
-
-    for decision in decisions:
-        updated = False
-        total_pnl = Decimal("0")
-        matched_order_ids = set()
-
-        # Try direct match by hyperliquid_order_id, tp_order_id, sl_order_id
-        order_ids_to_check = [
-            decision.hyperliquid_order_id,
-            decision.tp_order_id,
-            decision.sl_order_id,
-        ]
-
-        for oid in order_ids_to_check:
-            if oid:
-                order_id_str = str(oid)
-                if order_id_str in order_aggregates and order_id_str not in matched_order_ids:
-                    agg = order_aggregates[order_id_str]
-                    total_pnl += agg["total_pnl"]
-                    matched_order_ids.add(order_id_str)
-
-        # For Binance: also check TP/SL orders that triggered and created new order IDs
-        # The triggered order's clientOrderId contains the main order ID (e.g., "SL_12345")
-        if exchange == "binance" and decision.hyperliquid_order_id:
-            main_oid = str(decision.hyperliquid_order_id)
-            for tpsl_oid, linked_main_oid in binance_tpsl_to_main.items():
-                if linked_main_oid == main_oid and tpsl_oid not in matched_order_ids:
-                    if tpsl_oid in order_aggregates:
-                        agg = order_aggregates[tpsl_oid]
-                        total_pnl += agg["total_pnl"]
-                        matched_order_ids.add(tpsl_oid)
-                        logger.info(f"[Binance] Matched TP/SL order {tpsl_oid} to main order {main_oid}, pnl={agg['total_pnl']}, total_pnl={total_pnl}")
-
-        # If matched any order, mark as synced (even if PnL is 0 for opening trades)
-        if matched_order_ids:
-            decision.realized_pnl = total_pnl
-
-            # Try to get actual trigger time for TP/SL orders
-            trigger_time = None
-            for oid in [decision.tp_order_id, decision.sl_order_id]:
-                if oid and str(oid) in matched_order_ids:
-                    trigger_time = get_order_trigger_time(decision.account_id, str(oid))
-                    if trigger_time:
-                        logger.info(f"Got trigger time {trigger_time} for order {oid}")
-                        break
-
-            # Use actual trigger time if available, otherwise use current time
-            decision.pnl_updated_at = trigger_time if trigger_time else datetime.utcnow()
-            updated = True
-
-        # Fallback: match by time window using HyperliquidTrade (only if no direct match)
-        if not updated and decision.decision_time:
-            from datetime import timedelta
-            time_window = timedelta(minutes=5)
-
-            matching_trade = snapshot_db.query(HyperliquidTrade).filter(
-                HyperliquidTrade.account_id == decision.account_id,
-                HyperliquidTrade.symbol == decision.symbol,
-                HyperliquidTrade.environment == environment,
-                HyperliquidTrade.trade_time >= decision.decision_time - time_window,
-                HyperliquidTrade.trade_time <= decision.decision_time + time_window,
-            ).first()
-
-            if matching_trade:
-                order_id = str(matching_trade.order_id)
-                if order_id in order_aggregates:
-                    agg = order_aggregates[order_id]
-                    decision.realized_pnl = agg["total_pnl"]
-                    # Use trade time as pnl_updated_at for better accuracy
-                    decision.pnl_updated_at = matching_trade.trade_time or datetime.utcnow()
-                    updated = True
-
-                    # Also update hyperliquid_order_id for future direct matching
-                    if not decision.hyperliquid_order_id:
-                        decision.hyperliquid_order_id = order_id
-
-        if updated:
-            result["decisions_updated"] += 1
-
-    # Update ProgramExecutionLog records
-    # Match by hyperliquid_order_id, tp_order_id, sl_order_id and accumulate PnL
-    for program_log in program_logs:
-        # Skip if environment doesn't match (for logs that have environment set)
-        if program_log.environment and program_log.environment != environment:
-            continue
-
-        updated = False
-        total_pnl = Decimal("0")
-        matched_order_ids = set()
-
-        order_ids_to_check = [
-            program_log.hyperliquid_order_id,
-            program_log.tp_order_id,
-            program_log.sl_order_id,
-        ]
-
-        for oid in order_ids_to_check:
-            if oid:
-                order_id_str = str(oid)
-                if order_id_str in order_aggregates and order_id_str not in matched_order_ids:
-                    agg = order_aggregates[order_id_str]
-                    total_pnl += agg["total_pnl"]
-                    matched_order_ids.add(order_id_str)
-
-        # For Binance: also check TP/SL orders that triggered and created new order IDs
-        if exchange == "binance" and program_log.hyperliquid_order_id:
-            main_oid = str(program_log.hyperliquid_order_id)
-            for tpsl_oid, linked_main_oid in binance_tpsl_to_main.items():
-                if linked_main_oid == main_oid and tpsl_oid not in matched_order_ids:
-                    if tpsl_oid in order_aggregates:
-                        agg = order_aggregates[tpsl_oid]
-                        total_pnl += agg["total_pnl"]
-                        matched_order_ids.add(tpsl_oid)
-                        logger.info(f"[Binance] Matched TP/SL order {tpsl_oid} to program main order {main_oid}")
-
-        if matched_order_ids:
-            program_log.realized_pnl = total_pnl
-            # Also set environment if not already set (for historical records)
-            if not program_log.environment:
-                program_log.environment = environment
-
-            # Try to get actual trigger time for TP/SL orders
-            trigger_time = None
-            for oid in [program_log.tp_order_id, program_log.sl_order_id]:
-                if oid and str(oid) in matched_order_ids:
-                    trigger_time = get_order_trigger_time(program_log.account_id, str(oid))
-                    if trigger_time:
-                        break
-
-            program_log.pnl_updated_at = trigger_time if trigger_time else datetime.utcnow()
-            updated = True
-
-        if updated:
-            result["program_logs_updated"] += 1
-
-    # Fix historical data: update pnl_updated_at for records with TP/SL orders
-    # that may have been set to button click time instead of actual trigger time
-    result["historical_fixed"] = 0
-    for decision in decisions:
-        # Skip if no TP/SL order or already processed in this run
-        if not decision.tp_order_id and not decision.sl_order_id:
-            continue
-        if not decision.pnl_updated_at:
-            continue
-
-        # Check if pnl_updated_at might be inaccurate (set to button click time)
-        # We'll try to get the actual trigger time and update if different
-        for oid in [decision.tp_order_id, decision.sl_order_id]:
-            if not oid:
-                continue
-            trigger_time = get_order_trigger_time(decision.account_id, str(oid))
-            if trigger_time and trigger_time != decision.pnl_updated_at:
-                # Only update if the difference is significant (> 1 minute)
-                time_diff = abs((trigger_time - decision.pnl_updated_at).total_seconds())
-                if time_diff > 60:
-                    logger.info(
-                        f"Fixing historical pnl_updated_at for decision {decision.id}: "
-                        f"{decision.pnl_updated_at} -> {trigger_time}"
-                    )
-                    decision.pnl_updated_at = trigger_time
-                    result["historical_fixed"] += 1
-                    break
-
-    return result
+    return update_pnl(db=db)

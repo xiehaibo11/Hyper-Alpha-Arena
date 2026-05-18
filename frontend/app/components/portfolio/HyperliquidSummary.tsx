@@ -29,7 +29,7 @@ export default function HyperliquidSummary({ accountId, refreshKey }: Hyperliqui
     if (!accountId) {
       setState({
         status: 'disabled',
-        message: 'No Hyperliquid account detected. Please configure it in Trader Management first.',
+        message: 'No exchange account detected. Please configure Binance API in Trader Management first.',
       })
       return
     }
@@ -97,7 +97,7 @@ export default function HyperliquidSummary({ accountId, refreshKey }: Hyperliqui
   if (state.status === 'loading') {
     return (
       <Card className="border text-card-foreground shadow p-6 flex items-center justify-center">
-        <div className="text-sm text-muted-foreground">Loading Hyperliquid data...</div>
+        <div className="text-sm text-muted-foreground">Loading exchange data...</div>
       </Card>
     )
   }

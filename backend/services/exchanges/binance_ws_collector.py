@@ -93,6 +93,11 @@ class BinanceWSCollector:
         self.running = False
         self.flush_timer: Optional[threading.Timer] = None
         self.ws_thread: Optional[threading.Thread] = None
+        self._ws = None
+        self._generation = 0
+        self._active_symbol_set = set()
+        self._lifecycle_lock = threading.RLock()
+        self._ws_lock = threading.Lock()
         self.buffer_lock = threading.Lock()
         self.large_order_tracker = LargeOrderThresholdTracker(exchange="binance")
 
@@ -100,29 +105,38 @@ class BinanceWSCollector:
 
     def start(self, symbols: Optional[List[str]] = None):
         """Start the WebSocket collector"""
-        if self.running:
-            logger.warning("BinanceWSCollector already running")
-            return
+        with self._lifecycle_lock:
+            if self.running:
+                logger.warning("BinanceWSCollector already running")
+                return
 
-        if symbols is None:
-            from services.binance_symbol_service import get_selected_symbols
-            symbols = get_selected_symbols() or ["BTC"]
-            logger.info(f"[Binance WS] Using Binance watchlist symbols: {symbols}")
+            if symbols is None:
+                from services.binance_symbol_service import get_selected_symbols
+                symbols = get_selected_symbols() or ["BTC"]
+                logger.info(f"[Binance WS] Using Binance watchlist symbols: {symbols}")
 
-        self.symbols = symbols
-        self.trade_buffers = {s: TradeBuffer() for s in symbols}
-        self.large_order_tracker.initialize_from_history(symbols)
-        self.running = True
+            self.symbols = self._normalize_symbols(symbols)
+            self._active_symbol_set = set(self.symbols)
+            self.trade_buffers = {s: TradeBuffer() for s in self.symbols}
+            self.large_order_tracker.initialize_from_history(self.symbols)
+            self._generation += 1
+            generation = self._generation
+            self.running = True
 
-        # Start WebSocket thread
-        self.ws_thread = threading.Thread(target=self._ws_loop, daemon=True)
-        self.ws_thread.start()
+            # Start WebSocket thread
+            self.ws_thread = threading.Thread(
+                target=self._ws_loop,
+                args=(generation, list(self.symbols)),
+                daemon=True,
+                name="binance-trade-ws",
+            )
+            self.ws_thread.start()
 
-        # Start flush timer with boundary alignment (same as Hyperliquid)
-        # This ensures real-time detection matches backtest check_points
-        self._schedule_flush(align_to_boundary=True)
+            # Start flush timer with boundary alignment (same as Hyperliquid)
+            # This ensures real-time detection matches backtest check_points
+            self._schedule_flush(align_to_boundary=True)
 
-        logger.info(f"BinanceWSCollector started with symbols: {symbols}")
+            logger.info("BinanceWSCollector started: generation=%s symbols=%s", generation, self.symbols)
 
     def _schedule_flush(self, align_to_boundary: bool = False):
         """
@@ -164,32 +178,32 @@ class BinanceWSCollector:
         # Always re-align to boundary to prevent cumulative drift
         self._schedule_flush(align_to_boundary=True)
 
-    def _ws_loop(self):
+    def _ws_loop(self, generation: int, symbols: List[str]):
         """WebSocket connection loop running in separate thread"""
         import websocket
 
-        while self.running:
+        while self.running and generation == self._generation:
             try:
-                self._connect_and_process()
+                self._connect_and_process(generation, symbols)
             except Exception as e:
                 logger.error(f"WebSocket error: {e}")
-                if self.running:
+                if self.running and generation == self._generation:
                     time.sleep(RECONNECT_DELAY_SECONDS)
 
-    def _connect_and_process(self):
+    def _connect_and_process(self, generation: int, symbols: List[str]):
         """Connect to WebSocket and process messages"""
         import websocket
 
         # Build stream list
         streams = []
-        for symbol in self.symbols:
+        for symbol in symbols:
             exchange_symbol = f"{symbol}usdt".lower()
             streams.append(f"{exchange_symbol}@aggTrade")
 
         def on_message(ws, message):
             try:
                 data = json.loads(message)
-                self._process_message(data)
+                self._process_message(data, generation)
             except Exception as e:
                 logger.error(f"Message processing error: {e}")
 
@@ -200,6 +214,9 @@ class BinanceWSCollector:
             logger.warning(f"WebSocket closed: {close_status_code} {close_msg}")
 
         def on_open(ws):
+            if generation != self._generation:
+                ws.close()
+                return
             subscribe_msg = {
                 "method": "SUBSCRIBE",
                 "params": streams,
@@ -215,16 +232,29 @@ class BinanceWSCollector:
             on_close=on_close,
             on_open=on_open
         )
+        with self._ws_lock:
+            self._ws = ws
 
         # Run with ping interval to keep connection alive
-        ws.run_forever(ping_interval=WS_TIMEOUT_SECONDS)
+        try:
+            ws.run_forever(ping_interval=WS_TIMEOUT_SECONDS)
+        finally:
+            with self._ws_lock:
+                if self._ws is ws:
+                    self._ws = None
 
-    def _process_message(self, data: dict):
+    def _process_message(self, data: dict, generation: Optional[int] = None):
         """Process incoming WebSocket message"""
+        if generation is None:
+            generation = self._generation
+        if generation != self._generation:
+            return
         event_type = data.get("e")
 
         if event_type == "aggTrade":
             symbol = data.get("s", "").replace("USDT", "")
+            if symbol not in self._active_symbol_set:
+                return
             if symbol in self.trade_buffers:
                 qty = Decimal(str(data["q"]))
                 price = Decimal(str(data["p"]))
@@ -360,23 +390,52 @@ class BinanceWSCollector:
 
     def stop(self):
         """Stop the WebSocket collector"""
-        if not self.running:
-            return
+        with self._lifecycle_lock:
+            if not self.running:
+                return
 
-        self.running = False
+            self.running = False
+            self._generation += 1
 
-        if self.flush_timer:
-            self.flush_timer.cancel()
-            self.flush_timer = None
+            if self.flush_timer:
+                self.flush_timer.cancel()
+                self.flush_timer = None
 
-        logger.info("BinanceWSCollector stopped")
+            with self._ws_lock:
+                ws = self._ws
+                self._ws = None
+            if ws:
+                try:
+                    ws.close()
+                except Exception:
+                    pass
+
+            if self.ws_thread and self.ws_thread.is_alive():
+                self.ws_thread.join(timeout=3)
+            self.ws_thread = None
+
+            logger.info("BinanceWSCollector stopped")
 
     def refresh_symbols(self, new_symbols: List[str]):
         """Update symbols - requires restart"""
         logger.info(f"Symbol refresh requested: {new_symbols}")
-        self.stop()
-        time.sleep(1)  # Brief pause before restart
-        self.start(new_symbols)
+        with self._lifecycle_lock:
+            self.stop()
+            time.sleep(1)  # Brief pause before restart
+            self.start(new_symbols)
+
+    def _normalize_symbols(self, symbols: List[str]) -> List[str]:
+        normalized = []
+        seen = set()
+        for symbol in symbols:
+            value = str(symbol or "").strip().upper()
+            if value.endswith("USDT"):
+                value = value[:-4]
+            if not value or value in seen:
+                continue
+            seen.add(value)
+            normalized.append(value)
+        return normalized
 
 
 # Singleton instance

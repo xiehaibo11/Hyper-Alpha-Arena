@@ -23,16 +23,22 @@ export interface NewsArea {
   x: number; y: number; w: number; h: number; scale: number
 }
 
+export interface AISupervisorArea {
+  x: number; y: number; w: number; h: number; scale: number
+}
+
 export interface SceneConfig {
   sceneVersion?: number
   assets: PlacedAsset[]
   animationMap: Record<string, string>
   workstationArea?: WorkstationArea
   newsArea?: NewsArea
+  aiSupervisorArea?: AISupervisorArea
 }
 
 export const DEFAULT_WS_AREA: WorkstationArea = { x: 16, y: 86, w: 868, h: 460, scale: 1 }
 export const DEFAULT_NEWS_AREA: NewsArea = { x: 540, y: 100, w: 340, h: 420, scale: 0.5 }
+export const DEFAULT_AI_SUPERVISOR_AREA: AISupervisorArea = { x: 560, y: 92, w: 300, h: 178, scale: 1 }
 
 export function getWsArea(config: SceneConfig | null): WorkstationArea {
   const ws = config?.workstationArea
@@ -55,6 +61,18 @@ export function getNewsArea(config: SceneConfig | null): NewsArea {
     w: na.w ?? DEFAULT_NEWS_AREA.w,
     h: na.h ?? DEFAULT_NEWS_AREA.h,
     scale: na.scale && !isNaN(na.scale) ? na.scale : DEFAULT_NEWS_AREA.scale,
+  }
+}
+
+export function getAiSupervisorArea(config: SceneConfig | null): AISupervisorArea {
+  const area = config?.aiSupervisorArea
+  if (!area) return DEFAULT_AI_SUPERVISOR_AREA
+  return {
+    x: area.x ?? DEFAULT_AI_SUPERVISOR_AREA.x,
+    y: area.y ?? DEFAULT_AI_SUPERVISOR_AREA.y,
+    w: area.w ?? DEFAULT_AI_SUPERVISOR_AREA.w,
+    h: area.h ?? DEFAULT_AI_SUPERVISOR_AREA.h,
+    scale: area.scale && !isNaN(area.scale) ? area.scale : DEFAULT_AI_SUPERVISOR_AREA.scale,
   }
 }
 
@@ -112,6 +130,7 @@ export function normalizeSceneConfig(config: Partial<SceneConfig> | null | undef
     },
     workstationArea: getWsArea(input as SceneConfig),
     newsArea: getNewsArea(input as SceneConfig),
+    aiSupervisorArea: getAiSupervisorArea(input as SceneConfig),
   }
 }
 

@@ -73,7 +73,7 @@ export default function StrategyPanel({
 
   // Trader-specific settings
   const [priceThreshold, setPriceThreshold] = useState<string>('1.0')
-  const [triggerInterval, setTriggerInterval] = useState<string>('150')
+  const [triggerInterval, setTriggerInterval] = useState<string>('180')
   const [enabled, setEnabled] = useState<boolean>(true)
   const [scheduledTriggerEnabled, setScheduledTriggerEnabled] = useState<boolean>(true)
   const [lastTriggerAt, setLastTriggerAt] = useState<string | null>(null)
@@ -115,7 +115,7 @@ export default function StrategyPanel({
       if (strategyResponse.ok) {
         const strategy: StrategyConfig = await strategyResponse.json()
         setPriceThreshold((strategy.price_threshold ?? 1.0).toString())
-        setTriggerInterval((strategy.interval_seconds ?? 150).toString())
+        setTriggerInterval((strategy.interval_seconds ?? 180).toString())
         setEnabled(strategy.enabled)
         setScheduledTriggerEnabled(strategy.scheduled_trigger_enabled ?? true)
         setLastTriggerAt(strategy.last_trigger_at ?? null)
@@ -268,7 +268,7 @@ export default function StrategyPanel({
 
       const result: StrategyConfig = await response.json()
       setPriceThreshold((result.price_threshold ?? 1.0).toString())
-      setTriggerInterval((result.interval_seconds ?? 150).toString())
+      setTriggerInterval((result.interval_seconds ?? 180).toString())
       setEnabled(result.enabled)
       setScheduledTriggerEnabled(result.scheduled_trigger_enabled ?? true)
       setLastTriggerAt(result.last_trigger_at ?? null)
@@ -465,7 +465,7 @@ export default function StrategyPanel({
                   />
                   <p className="text-xs text-muted-foreground">
                     {scheduledTriggerEnabled
-                      ? t('strategy.triggerIntervalHint', 'Maximum time between triggers (default: 150s)')
+                      ? t('strategy.triggerIntervalHint', 'Maximum time between triggers (default: 180s)')
                       : t('strategy.scheduledTriggerDisabled', 'Scheduled trigger is disabled. AI will only run on signal pool triggers.')}
                   </p>
                 </section>

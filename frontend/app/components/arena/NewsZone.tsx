@@ -44,6 +44,7 @@ interface NewsZoneProps {
   areaW: number
   areaH: number
   scale: number
+  exchange: string
   boundTraderPresetIds: Set<number>
   animationMap?: Record<string, string>
 }
@@ -72,11 +73,11 @@ const IDLE_MOODS: MoodOption[] = [
 ]
 
 const SSE_BASE = '/api/market-intelligence/stream'
-const WATCHLIST_API = '/api/hyperliquid/symbols/watchlist'
 
 export default function NewsZone({
-  areaW, areaH, scale, boundTraderPresetIds, animationMap,
+  areaW, areaH, scale, exchange, boundTraderPresetIds, animationMap,
 }: NewsZoneProps) {
+  const normalizedExchange = exchange.toLowerCase()
   const [newsItems, setNewsItems] = useState<SSENewsItem[]>([])
   const [flowItems, setFlowItems] = useState<SSEFlowSummary[]>([])
   const [characters, setCharacters] = useState<IdleCharacter[]>([])
@@ -105,17 +106,22 @@ export default function NewsZone({
 
   // Fetch watchlist symbols
   useEffect(() => {
-    fetch(WATCHLIST_API).then(r => r.json()).then(data => {
+    const watchlistApi = normalizedExchange === 'binance'
+      ? '/api/binance/symbols/watchlist'
+      : normalizedExchange === 'okx'
+        ? '/api/okx/symbols/watchlist'
+        : '/api/hyperliquid/symbols/watchlist'
+    fetch(watchlistApi).then(r => r.json()).then(data => {
       const syms = (data?.symbols || data || []) as string[]
       setWatchlistSymbols(syms.length > 0 ? syms : ['BTC', 'ETH'])
     }).catch(() => setWatchlistSymbols(['BTC', 'ETH']))
-  }, [])
+  }, [normalizedExchange])
 
   // SSE connection
   useEffect(() => {
     if (watchlistSymbols.length === 0) return
     const symbolsParam = watchlistSymbols.join(',')
-    const url = `${SSE_BASE}?symbols=${encodeURIComponent(symbolsParam)}&exchange=hyperliquid&timeframe=15m&window=4h`
+    const url = `${SSE_BASE}?symbols=${encodeURIComponent(symbolsParam)}&exchange=${encodeURIComponent(normalizedExchange)}&timeframe=15m&window=4h`
     const es = new EventSource(url)
     sseRef.current = es
 
@@ -135,7 +141,7 @@ export default function NewsZone({
       setTimeout(() => sseRef.current === es && setWatchlistSymbols(prev => [...prev]), 5000)
     }
     return () => { es.close(); sseRef.current = null }
-  }, [watchlistSymbols])
+  }, [watchlistSymbols, normalizedExchange])
 
   // Initialize characters — default sit/idle, face up
   useEffect(() => {

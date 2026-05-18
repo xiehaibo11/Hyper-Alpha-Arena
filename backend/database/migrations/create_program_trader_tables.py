@@ -65,7 +65,7 @@ def upgrade() -> None:
                     account_id INTEGER NOT NULL REFERENCES accounts(id),
                     program_id INTEGER NOT NULL REFERENCES trading_programs(id),
                     signal_pool_ids TEXT,
-                    trigger_interval INTEGER NOT NULL DEFAULT 300,
+                    trigger_interval INTEGER NOT NULL DEFAULT 180,
                     scheduled_trigger_enabled BOOLEAN NOT NULL DEFAULT FALSE,
                     is_active BOOLEAN NOT NULL DEFAULT TRUE,
                     last_trigger_at TIMESTAMP,

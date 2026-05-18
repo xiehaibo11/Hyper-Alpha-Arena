@@ -63,18 +63,26 @@ export default function MobileDashboard() {
 
   const loadData = async () => {
     setLoading(true)
-    try {
-      const [positionsRes, tradesRes] = await Promise.all([
-        getArenaPositions({ trading_mode: tradingMode }),
-        getArenaTrades({ trading_mode: tradingMode, limit: 50 }),
-      ])
-      setPositions(positionsRes.accounts || [])
-      setTrades(tradesRes.trades || [])
-    } catch (error) {
-      console.error('Failed to load dashboard data:', error)
-    } finally {
-      setLoading(false)
+    const [positionsResult, tradesResult] = await Promise.allSettled([
+      getArenaPositions({ trading_mode: tradingMode }),
+      getArenaTrades({ trading_mode: tradingMode, limit: 50 }),
+    ])
+
+    if (positionsResult.status === 'fulfilled') {
+      setPositions(positionsResult.value.accounts || [])
+    } else {
+      console.error('Failed to load dashboard positions:', positionsResult.reason)
+      setPositions([])
     }
+
+    if (tradesResult.status === 'fulfilled') {
+      setTrades(tradesResult.value.trades || [])
+    } else {
+      console.error('Failed to load dashboard trades:', tradesResult.reason)
+      setTrades([])
+    }
+
+    setLoading(false)
   }
 
   const handleUpdatePnl = async () => {

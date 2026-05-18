@@ -15,6 +15,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/market", tags=["market_data"])
 
 
+def _trim_indicator_result(value: Any, keep: int) -> Any:
+    if keep <= 0:
+        return value
+    if isinstance(value, list):
+        return value[-keep:]
+    if isinstance(value, dict):
+        return {key: _trim_indicator_result(item, keep) for key, item in value.items()}
+    return value
+
+
 class PriceResponse(BaseModel):
     """Price response model"""
     symbol: str
@@ -104,17 +114,17 @@ async def get_multiple_prices(symbols: str, market: str = "hyperliquid"):
     """
     try:
         symbol_list = [s.strip() for s in symbols.split(',') if s.strip()]
-        
+
         if not symbol_list:
             raise HTTPException(status_code=400, detail="crypto symbol list cannot be empty")
-        
+
         if len(symbol_list) > 20:
             raise HTTPException(status_code=400, detail="Maximum 20 crypto symbols supported")
-        
+
         results = []
         import time
         current_timestamp = int(time.time() * 1000)
-        
+
         for symbol in symbol_list:
             try:
                 ticker_data = get_ticker_data(symbol, market)
@@ -133,7 +143,7 @@ async def get_multiple_prices(symbols: str, market: str = "hyperliquid"):
             except Exception as e:
                 logger.warning(f"Failed to get {symbol} ticker data: {e}")
                 # Continue processing other cryptos without interrupting the entire request
-                
+
         return results
     except HTTPException:
         raise
@@ -144,7 +154,7 @@ async def get_multiple_prices(symbols: str, market: str = "hyperliquid"):
 
 @router.get("/kline/{symbol}", response_model=KlineResponse)
 async def get_crypto_kline(
-    symbol: str, 
+    symbol: str,
     market: str = "US",
     period: str = "1m",
     count: int = 100
@@ -169,13 +179,13 @@ async def get_crypto_kline(
                 status_code=400,
                 detail=f"Unsupported time period, supported periods: {', '.join(valid_periods)}"
             )
-            
+
         if count <= 0 or count > 500:
             raise HTTPException(status_code=400, detail="Data count must be between 1-500")
-        
+
         # Get K-line data
         kline_data = get_kline_data(symbol, market, period, count)
-        
+
         # Convert data format
         kline_items = []
         for item in kline_data:
@@ -198,7 +208,7 @@ async def get_crypto_kline(
                 chg=item.get('chg'),
                 percent=item.get('percent')
             ))
-        
+
         return KlineResponse(
             symbol=symbol,
             market=market,
@@ -227,7 +237,7 @@ async def get_crypto_market_status(symbol: str, market: str = "US"):
     """
     try:
         status_data = get_market_status(symbol, market)
-        
+
         return MarketStatusResponse(
             symbol=status_data.get('symbol', symbol),
             market=status_data.get('market', market),
@@ -251,7 +261,7 @@ async def market_data_health():
     try:
         # Test getting a price to check if service is running normally
         test_price = get_last_price("MSFT", "US")
-        
+
         import time
         return {
             "status": "healthy",
@@ -316,12 +326,21 @@ async def get_kline_with_indicators(
         if count <= 0 or count > 500:
             raise HTTPException(status_code=400, detail="数据数量必须在1-500之间")
 
+        indicator_list = [ind.strip().upper() for ind in indicators.split(',') if ind.strip()] if indicators.strip() else []
+        fetch_count = count
+        if indicator_list:
+            from services.technical_indicators import get_required_kline_count
+
+            # Fetch warm-up candles too, then trim the response back to the requested count.
+            fetch_count = min(500, max(count, count + get_required_kline_count(indicator_list)))
+
         # 获取K线数据
-        kline_data = get_kline_data(symbol, market, period, count)
+        kline_data = get_kline_data(symbol, market, period, fetch_count)
+        response_kline_data = kline_data[-count:] if count and len(kline_data) > count else kline_data
 
         # 转换K线数据格式
         kline_items = []
-        for item in kline_data:
+        for item in response_kline_data:
             dt_value = item.get('datetime')
             if dt_value is not None:
                 dt_str = dt_value.isoformat() if hasattr(dt_value, 'isoformat') else str(dt_value)
@@ -343,10 +362,12 @@ async def get_kline_with_indicators(
 
         # 计算技术指标
         indicator_results = {}
-        if indicators.strip():
-            indicator_list = [ind.strip() for ind in indicators.split(',') if ind.strip()]
-            if indicator_list:
-                indicator_results = calculate_indicators(kline_data, indicator_list)
+        if indicator_list:
+            indicator_results = calculate_indicators(kline_data, indicator_list)
+            indicator_results = {
+                key: _trim_indicator_result(value, len(kline_items))
+                for key, value in indicator_results.items()
+            }
 
         return KlineWithIndicatorsResponse(
             symbol=symbol,

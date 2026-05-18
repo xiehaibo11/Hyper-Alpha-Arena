@@ -24,6 +24,7 @@ import json
 import logging
 import re
 from datetime import datetime
+from difflib import SequenceMatcher
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -185,6 +186,75 @@ Respond in JSON only:
 ]}}"""
 
 
+def _normalize_memory_text(text: str) -> str:
+    normalized = re.sub(r"\s+", " ", (text or "").strip().lower())
+    normalized = re.sub(r"[^\w\u4e00-\u9fff ]+", "", normalized)
+    return normalized
+
+
+def _memory_similarity(left: str, right: str) -> float:
+    left_norm = _normalize_memory_text(left)
+    right_norm = _normalize_memory_text(right)
+    if not left_norm or not right_norm:
+        return 0.0
+    if left_norm == right_norm:
+        return 1.0
+    return SequenceMatcher(None, left_norm, right_norm).ratio()
+
+
+def _locally_dedup_memories(
+    db: Session,
+    new_memories: List[Dict[str, Any]],
+    existing: List[Dict[str, Any]],
+    source: str,
+) -> int:
+    """
+    Conservative fallback when the LLM dedup step fails.
+
+    It skips exact or near-duplicate memories instead of adding all candidates,
+    which prevents a temporary malformed LLM response from polluting long-term
+    memory with repeated entries.
+    """
+    count = 0
+    known = list(existing)
+    seen_new: List[Dict[str, Any]] = []
+
+    for mem in new_memories:
+        cat = mem.get("category", "context")
+        content = (mem.get("content") or "").strip()
+        if cat not in MEMORY_CATEGORIES or not content:
+            continue
+
+        duplicate = False
+        for old in [*known, *seen_new]:
+            if old.get("category") != cat:
+                continue
+            similarity = _memory_similarity(content, old.get("content", ""))
+            if similarity >= 0.9:
+                duplicate = True
+                logger.info(
+                    "[Memory] Local dedup skipped duplicate category=%s similarity=%.2f",
+                    cat,
+                    similarity,
+                )
+                break
+
+        if duplicate:
+            continue
+
+        created = add_memory(db, cat, content, source, mem.get("importance", 0.5))
+        known.append({
+            "id": created.id,
+            "category": created.category,
+            "content": created.content,
+            "importance": created.importance,
+        })
+        seen_new.append({"category": cat, "content": content})
+        count += 1
+
+    return count
+
+
 def batch_dedup_memories(
     db: Session,
     new_memories: List[Dict[str, Any]],
@@ -240,15 +310,8 @@ def batch_dedup_memories(
     # Single LLM call for all dedup decisions
     actions = _call_llm_for_dedup(prompt, api_config)
     if actions is None:
-        # LLM failed, fallback: add all as new
-        logger.warning("[Memory] Batch dedup LLM failed, adding all as new")
-        count = 0
-        for mem in new_memories:
-            cat = mem.get("category", "context")
-            if cat not in MEMORY_CATEGORIES or not mem.get("content"):
-                continue
-            add_memory(db, cat, mem["content"], source, mem.get("importance", 0.5))
-            count += 1
+        logger.warning("[Memory] Batch dedup LLM failed, using local similarity fallback")
+        count = _locally_dedup_memories(db, new_memories, existing, source)
         enforce_memory_limit(db)
         return count
 
@@ -346,10 +409,17 @@ def _call_llm_for_dedup(
             choices = data.get("choices", [])
             text = choices[0].get("message", {}).get("content", "") if choices else ""
 
+        text = (text or "").strip()
+        text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE)
         json_match = re.search(r'\{.*\}', text, re.DOTALL)
         if json_match:
             result = json.loads(json_match.group())
             return result.get("actions", [])
+
+        array_match = re.search(r'\[.*\]', text, re.DOTALL)
+        if array_match:
+            result = json.loads(array_match.group())
+            return result if isinstance(result, list) else []
 
         logger.warning(f"[Memory] Dedup response not valid JSON: {text[:200]}")
         return None

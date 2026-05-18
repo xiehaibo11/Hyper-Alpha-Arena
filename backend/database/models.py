@@ -18,7 +18,7 @@ class User(Base):
     email = Column(String(100), nullable=True)
     password_hash = Column(String(255), nullable=True)  # For future password authentication
     is_active = Column(String(10), nullable=False, default="true")
-    
+
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(
         TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
@@ -37,18 +37,18 @@ class Account(Base):
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     version = Column(String(100), nullable=False, default="v1")
-    
+
     # Account Identity
     name = Column(String(100), nullable=False)  # Display name (e.g., "GPT Trader", "Claude Analyst")
     account_type = Column(String(20), nullable=False, default="AI")  # "AI" or "MANUAL"
     is_active = Column(String(10), nullable=False, default="true")
     auto_trading_enabled = Column(String(10), nullable=False, default="true")
-    
+
     # AI Model Configuration (for AI accounts)
     model = Column(String(100), nullable=True, default="gpt-4")  # AI model name
     base_url = Column(String(500), nullable=True, default="https://api.openai.com/v1")  # API endpoint
     api_key = Column(String(500), nullable=True)  # API key for authentication
-    
+
     # Trading Account Balances (USD for CRYPTO market)
     initial_capital = Column(DECIMAL(18, 2), nullable=False, default=10000.00)
     current_cash = Column(DECIMAL(18, 2), nullable=False, default=10000.00)
@@ -97,7 +97,7 @@ class UserAuthSession(Base):
     session_token = Column(String(64), unique=True, nullable=False, index=True)
     expires_at = Column(DateTime, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
-    
+
     user = relationship("User", back_populates="auth_sessions")
 
 
@@ -281,7 +281,7 @@ class AccountStrategyConfig(Base):
     id = Column(Integer, primary_key=True, index=True)
     account_id = Column(Integer, ForeignKey("accounts.id"), nullable=False, unique=True)
     price_threshold = Column(Float, nullable=False, default=1.0)  # Deprecated, kept for compatibility
-    trigger_interval = Column(Integer, nullable=False, default=150)  # Trigger interval (seconds)
+    trigger_interval = Column(Integer, nullable=False, default=180)  # Trigger interval (seconds)
     # Note: Foreign key constraint exists at DB level (via migration), but not in ORM
     # because signal_pools table is managed via raw SQL, not SQLAlchemy models
     signal_pool_id = Column(Integer, nullable=True)  # Deprecated: use signal_pool_ids instead
@@ -582,7 +582,7 @@ class UserExchangeConfig(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"), nullable=False, unique=True)
-    selected_exchange = Column(String(20), nullable=False, default="hyperliquid")
+    selected_exchange = Column(String(20), nullable=False, default="binance")
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
     updated_at = Column(
         TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
@@ -715,6 +715,32 @@ class KlineAIAnalysisLog(Base):
 
     # Relationships
     user = relationship("User")
+    account = relationship("Account")
+
+
+class ArenaAIContextSnapshot(Base):
+    """Normalized advisory context produced by Arena sub-AI modules."""
+    __tablename__ = "arena_ai_context_snapshots"
+
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey("accounts.id"), nullable=True, index=True)
+    exchange = Column(String(20), nullable=False, default="binance", index=True)
+    symbol = Column(String(20), nullable=True, index=True)
+    timeframe = Column(String(10), nullable=True, index=True)
+    module = Column(String(50), nullable=False, index=True)
+    status = Column(String(20), nullable=False, default="ok")
+    summary = Column(Text, nullable=False, default="")
+    direction = Column(String(20), nullable=True)
+    confidence = Column(Float, nullable=True)
+    risk_level = Column(String(20), nullable=True)
+    raw_payload = Column(Text, nullable=True)
+    generated_at = Column(TIMESTAMP, nullable=False, server_default=func.current_timestamp(), index=True)
+    expires_at = Column(TIMESTAMP, nullable=True, index=True)
+    created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    updated_at = Column(
+        TIMESTAMP, server_default=func.current_timestamp(), onupdate=func.current_timestamp()
+    )
+
     account = relationship("Account")
 
 
@@ -1246,7 +1272,7 @@ class AccountProgramBinding(Base):
 
     # Trigger configuration
     signal_pool_ids = Column(Text, nullable=True)  # JSON: [1, 2, 3]
-    trigger_interval = Column(Integer, nullable=False, default=300)  # seconds
+    trigger_interval = Column(Integer, nullable=False, default=180)  # seconds
     scheduled_trigger_enabled = Column(Boolean, nullable=False, default=False)
     is_active = Column(Boolean, nullable=False, default=True)
     last_trigger_at = Column(TIMESTAMP, nullable=True)

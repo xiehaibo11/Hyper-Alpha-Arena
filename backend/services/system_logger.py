@@ -208,12 +208,18 @@ class SystemLogHandler(logging.Handler):
             level = record.levelname
             message = self.format(record)
 
-            # 分类日志
+            # 分类日志：异常默认归入 system_error，避免 SQL/字段名里包含
+            # "price" 时被误分到价格更新。
+            lower_message = message.lower()
             category = "system_error"
-            if "price" in message.lower() or "market" in module:
-                category = "price_update"
-            elif "ai_decision" in module or "trading" in module:
+            if "ai_decision" in module or "trading" in module:
                 category = "ai_decision"
+            elif record.levelno < logging.WARNING and (
+                "price snapshot" in lower_message
+                or "price updated" in lower_message
+                or "market" in module
+            ):
+                category = "price_update"
 
             # 提取详细信息
             details = {
@@ -323,14 +329,15 @@ price_snapshot_logger = PriceSnapshotLogger()
 
 def setup_system_logger():
     """设置系统日志处理器（在应用启动时调用）"""
-    handler = SystemLogHandler()
-    handler.setLevel(logging.WARNING)  # 只收集WARNING及以上
-
-    # 添加到根logger
     root_logger = logging.getLogger()
-    root_logger.addHandler(handler)
+    if not any(isinstance(existing, SystemLogHandler) for existing in root_logger.handlers):
+        handler = SystemLogHandler()
+        handler.setLevel(logging.WARNING)  # 只收集WARNING及以上
+        root_logger.addHandler(handler)
 
     # Suppress noisy APScheduler warnings (e.g. "was missed by 0:00:15")
     logging.getLogger("apscheduler").setLevel(logging.ERROR)
+
+    price_snapshot_logger.start()
 
     logging.info("System log collector initialized")

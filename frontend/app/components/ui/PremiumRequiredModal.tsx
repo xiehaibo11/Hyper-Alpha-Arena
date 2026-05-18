@@ -1,6 +1,6 @@
 import React from 'react'
 import { createPortal } from 'react-dom'
-import { X, ExternalLink, Crown, Sparkles, Zap, Shield } from 'lucide-react'
+import { X, Crown, Sparkles, Zap, Shield } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface PremiumRequiredModalProps {
@@ -14,17 +14,17 @@ interface PremiumRequiredModalProps {
 const premiumBenefits = [
   {
     icon: Sparkles,
-    title: 'Advanced Data Analysis',
+    title: 'Advanced data analysis',
     description: 'Deeper historical data for better trend analysis'
   },
   {
     icon: Zap,
-    title: 'Priority Support',
+    title: 'Priority support',
     description: 'Get faster responses from our technical team'
   },
   {
     icon: Shield,
-    title: 'Feature Priority',
+    title: 'Feature priority',
     description: 'Your feature requests get prioritized'
   }
 ]
@@ -32,7 +32,6 @@ const premiumBenefits = [
 export default function PremiumRequiredModal({
   isOpen,
   onClose,
-  onSubscribe,
   featureName = 'This feature',
   description
 }: PremiumRequiredModalProps) {
@@ -55,8 +54,8 @@ export default function PremiumRequiredModal({
               <Crown className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h2 className="text-xl font-bold">Premium Required</h2>
-              <p className="text-sm text-muted-foreground">Unlock advanced features</p>
+              <h2 className="text-xl font-bold">Self-hosted unlocked</h2>
+              <p className="text-sm text-muted-foreground">Advanced features are enabled</p>
             </div>
           </div>
           <Button
@@ -74,14 +73,14 @@ export default function PremiumRequiredModal({
           {/* Feature Message */}
           <div className="p-4 bg-orange-50 dark:bg-orange-950/20 rounded-lg border border-orange-200 dark:border-orange-800">
             <p className="text-sm text-orange-700 dark:text-orange-300">
-              <strong>{featureName}</strong> requires a premium subscription.
+              <strong>{featureName}</strong> is enabled on this self-hosted server.
               {description && <span className="block mt-1 text-xs opacity-80">{description}</span>}
             </p>
           </div>
 
           {/* Benefits */}
           <div className="space-y-3">
-            <p className="text-sm font-medium text-muted-foreground">Premium benefits include:</p>
+            <p className="text-sm font-medium text-muted-foreground">Enabled features include:</p>
             {premiumBenefits.map((benefit, index) => (
               <div key={index} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
                 <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
@@ -102,20 +101,19 @@ export default function PremiumRequiredModal({
               className="flex-1"
               onClick={onClose}
             >
-              Cancel
+              Close
             </Button>
             <Button
               className="flex-1 bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700"
-              onClick={onSubscribe}
+              onClick={onClose}
             >
-              Subscribe Now
-              <ExternalLink className="ml-2 h-4 w-4" />
+              Unlocked
             </Button>
           </div>
 
           {/* Footer Note */}
           <p className="text-xs text-center text-muted-foreground">
-            Your support helps us continue developing new features
+            This self-hosted deployment has membership restrictions disabled.
           </p>
         </div>
       </div>

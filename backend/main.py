@@ -23,9 +23,12 @@ from database.connection import engine, Base, SessionLocal
 from database.models import TradingConfig, User, Account, SystemConfig, AccountAssetSnapshot
 from services.asset_curve_calculator import invalidate_asset_curve_cache
 from config.settings import DEFAULT_TRADING_CONFIGS
+from config.storage import get_upload_storage_settings
+from services.message_archive import register_message_archive_listeners
 from version import __version__
 
 logger = logging.getLogger(__name__)
+register_message_archive_listeners()
 
 app = FastAPI(
     title="Hyper Alpha Arena API",
@@ -64,6 +67,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_static_cache_headers(request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/assets/"):
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
+
+
 # Mount static files for frontend
 static_dir = os.path.join(os.path.dirname(__file__), "static")
 if os.path.exists(static_dir):
@@ -71,6 +83,12 @@ if os.path.exists(static_dir):
     assets_dir = os.path.join(static_dir, "assets")
     if os.path.exists(assets_dir):
         app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+upload_storage_settings = get_upload_storage_settings()
+if upload_storage_settings.mode == "local":
+    upload_dir = upload_storage_settings.local_root
+    os.makedirs(upload_dir, exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory=upload_dir), name="uploads")
 
 
 # Frontend file watcher
@@ -170,6 +188,31 @@ def _start_runtime_monitor():
     runtime_monitor_thread = threading.Thread(target=monitor_loop, daemon=True, name="runtime-monitor")
     runtime_monitor_thread.start()
 
+
+def _sync_frontend_dist(dist_dir: str, static_dir: str):
+    """Replace generated frontend static files without leaving stale hashed assets."""
+    import shutil
+
+    dist_path = Path(dist_dir).resolve()
+    static_path = Path(static_dir).resolve()
+    if static_path.name != "static":
+        raise RuntimeError(f"Refusing to sync frontend build into unexpected path: {static_path}")
+
+    static_path.mkdir(parents=True, exist_ok=True)
+    for child in static_path.iterdir():
+        if child.is_dir():
+            shutil.rmtree(child)
+        else:
+            child.unlink()
+
+    for child in dist_path.iterdir():
+        target = static_path / child.name
+        if child.is_dir():
+            shutil.copytree(child, target)
+        else:
+            shutil.copy2(child, target)
+
+
 def build_frontend():
     """Build frontend and copy to static directory"""
     global last_build_time
@@ -197,13 +240,7 @@ def build_frontend():
             # Copy to static directory
             dist_dir = os.path.join(frontend_dir, "dist")
             if os.path.exists(dist_dir):
-                # Clear static directory
-                if os.path.exists(static_dir):
-                    import shutil
-                    shutil.rmtree(static_dir)
-
-                # Copy dist to static
-                shutil.copytree(dist_dir, static_dir)
+                _sync_frontend_dist(dist_dir, static_dir)
                 print("Frontend rebuilt and deployed successfully")
                 last_build_time = current_time
             else:
@@ -218,6 +255,9 @@ def build_frontend():
 
 def watch_frontend_files():
     """Watch frontend files for changes"""
+    if os.getenv("FRONTEND_WATCHER_ENABLED", "").lower() not in {"1", "true", "yes", "on"}:
+        return
+
     frontend_dir = os.path.join(os.path.dirname(__file__), "..", "frontend")
     if not os.path.exists(frontend_dir):
         return
@@ -274,16 +314,25 @@ def watch_frontend_files():
 def on_startup():
     global frontend_watcher_thread
 
-    # Start frontend file watcher in background thread
-    frontend_watcher_thread = threading.Thread(target=watch_frontend_files, daemon=True)
-    frontend_watcher_thread.start()
-    print("Frontend file watcher started")
+    # Start frontend file watcher only when explicitly enabled for local development.
+    if os.getenv("FRONTEND_WATCHER_ENABLED", "").lower() in {"1", "true", "yes", "on"}:
+        frontend_watcher_thread = threading.Thread(target=watch_frontend_files, daemon=True)
+        frontend_watcher_thread.start()
+        print("Frontend file watcher started")
 
     _start_runtime_monitor()
     print("Runtime monitor started")
 
     # Create tables
     Base.metadata.create_all(bind=engine)
+
+    # Snapshot tables back the mainnet/testnet trade timeline. Keep this here so
+    # non-Docker starts and restored databases do not leave the dashboard broken.
+    try:
+        from database.init_snapshot_db import init_snapshot_database
+        init_snapshot_database()
+    except Exception as e:
+        print(f"[startup] Snapshot database initialization error (non-fatal): {e}")
 
     # Run all migrations (idempotent - safe to run every startup)
     try:
@@ -447,7 +496,7 @@ def on_startup():
             db.add(default_user)
             db.commit()
             db.refresh(default_user)
-        
+
         # No default account creation - users must create their own accounts
 
     finally:
@@ -515,7 +564,7 @@ def on_startup():
         seed_prompt_templates(db)
     finally:
         db.close()
-    
+
     # Initialize system log collector
     from services.system_logger import setup_system_logger
     setup_system_logger()
@@ -574,7 +623,7 @@ def on_startup():
             db = SessionLocal()
             try:
                 print("[startup] Warming up numba JIT compilation...")
-                calculate_indicator(db, "BTC", "BOLL", "1h")
+                calculate_indicator(db, "BTC", "BOLL", "1h", int(time.time() * 1000))
                 print("[startup] Numba warmup completed")
             finally:
                 db.close()
@@ -725,6 +774,7 @@ from api.trader_data_routes import router as trader_data_router
 from api.prompt_backtest_routes import router as prompt_backtest_router
 from api.system_routes import router as system_router
 from api.binance_routes import router as binance_router
+from api.okx_routes import router as okx_router
 from api.ai_stream_routes import router as ai_stream_router
 from api.hyper_ai_routes import router as hyper_ai_router
 from api.bot_routes import router as bot_router
@@ -758,6 +808,7 @@ app.include_router(prompt_backtest_router)
 app.include_router(program_router)
 app.include_router(system_router)
 app.include_router(binance_router)
+app.include_router(okx_router)
 app.include_router(ai_stream_router)
 app.include_router(hyper_ai_router)
 app.include_router(bot_router)
@@ -855,10 +906,24 @@ async def serve_spa(full_path: str):
     if full_path.startswith("api") or full_path.startswith("static") or full_path.startswith("docs") or full_path.startswith("openapi.json") or full_path == "auth-config.json":
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail="Not found")
-    
+
+    blocked_names = {
+        ".env",
+        ".git",
+        ".svn",
+        ".hg",
+        "config.php",
+        "settings.php",
+        "wp-config.php",
+    }
+    path_parts = [part for part in full_path.split("/") if part]
+    if any(part.startswith(".") or part in blocked_names or part.endswith((".bak", ".backup", ".old")) for part in path_parts):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Not found")
+
     static_dir = os.path.join(os.path.dirname(__file__), "static")
     index_path = os.path.join(static_dir, "index.html")
-    
+
     if os.path.exists(index_path):
         return FileResponse(
             index_path,

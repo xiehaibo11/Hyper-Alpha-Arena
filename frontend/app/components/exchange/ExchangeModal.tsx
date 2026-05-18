@@ -45,6 +45,15 @@ export default function ExchangeModal({ isOpen, onClose }: ExchangeModalProps) {
       ],
       buttonText: t('exchange.binance.button', 'Register First'),
     },
+    okx: {
+      description: t('exchange.okx.description', 'Global CEX perpetual market data'),
+      features: [
+        t('exchange.okx.feature1', 'Public market data'),
+        t('exchange.okx.feature2', 'High liquidity'),
+        t('exchange.okx.feature3', 'USDT swaps'),
+      ],
+      buttonText: t('exchange.okx.button', 'Open Futures'),
+    },
   }
 
   // Data collection info for each exchange
@@ -72,6 +81,18 @@ export default function ExchangeModal({ isOpen, onClose }: ExchangeModalProps) {
         { label: t('exchange.data.funding', 'Funding Rate'), value: t('exchange.data.realtime', 'Real-time') },
         { label: t('exchange.data.orderbook', 'Orderbook'), value: 'REST 15s' },
       ]
+    },
+    okx: {
+      method: 'REST',
+      icon: Clock,
+      color: 'text-slate-500',
+      items: [
+        { label: t('exchange.data.kline', 'K-line'), value: t('exchange.data.onDemand', 'On demand') },
+        { label: t('exchange.data.takerVolume', 'Taker Volume'), value: 'REST 5m' },
+        { label: t('exchange.data.oi', 'Open Interest'), value: 'REST 60s' },
+        { label: t('exchange.data.funding', 'Funding Rate'), value: 'REST 60s' },
+        { label: t('exchange.data.orderbook', 'Orderbook'), value: 'REST 15s' },
+      ]
     }
   }
 
@@ -91,11 +112,11 @@ export default function ExchangeModal({ isOpen, onClose }: ExchangeModalProps) {
           </Button>
         </div>
 
-        {/* Exchange Cards - Only show Hyperliquid and Binance */}
+        {/* Exchange Cards */}
         <div className="p-6">
-          <div className="grid gap-6 md:grid-cols-2">
-            {exchanges.filter(ex => ex.id === 'hyperliquid' || ex.id === 'binance').map((exchange) => {
-              const info = dataInfo[exchange.id as 'hyperliquid' | 'binance']
+          <div className="grid gap-6 md:grid-cols-3">
+            {exchanges.filter(ex => ex.id === 'hyperliquid' || ex.id === 'binance' || ex.id === 'okx').map((exchange) => {
+              const info = dataInfo[exchange.id as 'hyperliquid' | 'binance' | 'okx']
               const DataIcon = info?.icon || Clock
 
               return (

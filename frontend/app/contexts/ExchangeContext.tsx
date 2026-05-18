@@ -20,6 +20,7 @@ interface ExchangeProviderProps {
 
 // Storage key for persisting exchange selection
 const STORAGE_KEY = 'hyper-alpha-arena-selected-exchange';
+const SUPPORTED_EXCHANGES: ExchangeId[] = ['hyperliquid', 'binance', 'okx', 'aster'];
 
 export function ExchangeProvider({ children }: ExchangeProviderProps) {
   const [currentExchange, setCurrentExchange] = useState<ExchangeId>(DEFAULT_EXCHANGE);
@@ -32,13 +33,13 @@ export function ExchangeProvider({ children }: ExchangeProviderProps) {
         const response = await fetch('/api/users/exchange-config');
         if (response.ok) {
           const data = await response.json();
-          if (data.selected_exchange && ['hyperliquid', 'binance', 'aster'].includes(data.selected_exchange)) {
+          if (data.selected_exchange && SUPPORTED_EXCHANGES.includes(data.selected_exchange)) {
             setCurrentExchange(data.selected_exchange as ExchangeId);
           }
         } else {
           // Fallback to localStorage if backend fails
           const stored = localStorage.getItem(STORAGE_KEY);
-          if (stored && ['hyperliquid', 'binance', 'aster'].includes(stored)) {
+          if (stored && SUPPORTED_EXCHANGES.includes(stored as ExchangeId)) {
             setCurrentExchange(stored as ExchangeId);
           }
         }
@@ -47,7 +48,7 @@ export function ExchangeProvider({ children }: ExchangeProviderProps) {
         // Fallback to localStorage
         try {
           const stored = localStorage.getItem(STORAGE_KEY);
-          if (stored && ['hyperliquid', 'binance', 'aster'].includes(stored)) {
+          if (stored && SUPPORTED_EXCHANGES.includes(stored as ExchangeId)) {
             setCurrentExchange(stored as ExchangeId);
           }
         } catch (localError) {
@@ -80,16 +81,31 @@ export function ExchangeProvider({ children }: ExchangeProviderProps) {
       id: 'binance',
       name: 'Binance',
       displayName: 'Binance',
-      selectable: false,
+      selectable: true,
       selected: currentExchange === 'binance',
-      apiSupported: false,
-      comingSoon: true,
+      apiSupported: true,
+      comingSoon: false,
       logo: '/static/binance_logo.svg',
       description: '#1 Global CEX by Volume',
       features: ['KYC Required', 'High Liquidity', 'Testnet Available'],
       referralLink: 'https://www.binance.com/en/join?ref=HYPERSVIP',
-      buttonText: 'Register First',
-      buttonVariant: 'outline'
+      buttonText: 'Open Futures',
+      buttonVariant: 'default'
+    },
+    {
+      id: 'okx',
+      name: 'OKX',
+      displayName: 'OKX',
+      selectable: true,
+      selected: currentExchange === 'okx',
+      apiSupported: true,
+      comingSoon: false,
+      logo: '/static/okx_logo.svg',
+      description: 'Global CEX Perpetual Data',
+      features: ['High Liquidity', 'Public Market Data', 'USDT Swaps'],
+      referralLink: 'https://www.okx.com/',
+      buttonText: 'Open Futures',
+      buttonVariant: 'default'
     },
     {
       id: 'aster',

@@ -200,6 +200,15 @@ useEffect(() => {
   // Use formatDateTime from @/lib/dateTime with 'short' style
   const formatTimestamp = (timestamp: string) => formatDateTime(timestamp, { style: 'short' })
 
+  const formatDetails = (details?: Record<string, any>) => {
+    if (!details || Object.keys(details).length === 0) return ''
+    try {
+      return JSON.stringify(details, null, 2)
+    } catch {
+      return String(details)
+    }
+  }
+
   return (
     <div className="container mx-auto p-4 space-y-4">
       <div className="flex items-center justify-between">
@@ -382,12 +391,12 @@ useEffect(() => {
                               </div>
                               <p className="text-sm break-words">{log.message}</p>
                               {log.details && Object.keys(log.details).length > 0 && (
-                                <details className="mt-2">
+                                <details className="mt-2" open={log.category === 'price_update'}>
                                   <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
                                     {t('logs.viewDetails', 'View Details')}
                                   </summary>
-                                  <pre className="mt-2 text-xs bg-muted p-2 rounded overflow-x-auto">
-                                    {JSON.stringify(log.details, null, 2)}
+                                  <pre className="mt-2 max-h-80 overflow-auto whitespace-pre-wrap break-words rounded bg-muted p-2 text-xs">
+                                    {formatDetails(log.details)}
                                   </pre>
                                 </details>
                               )}

@@ -117,7 +117,7 @@ PROMPT_CONTEXT_TOOLS = [
                     },
                     "exchange": {
                         "type": "string",
-                        "enum": ["hyperliquid", "binance"],
+                        "enum": ["hyperliquid", "binance", "okx"],
                         "description": "Exchange to query data from (default: hyperliquid)"
                     }
                 },
@@ -612,6 +612,13 @@ def execute_query_market_data(db: Session, symbol: str, period: str = "1h", exch
                     price = float(resp.json().get("price", 0))
             except Exception as e:
                 logger.warning(f"[query_market_data] Failed to get Binance price: {e}")
+        elif exchange == "okx":
+            try:
+                from services.exchanges.okx_adapter import OKXAdapter
+
+                price = OKXAdapter().fetch_price(symbol)
+            except Exception as e:
+                logger.warning(f"[query_market_data] Failed to get OKX price: {e}")
         else:
             from services.hyperliquid_market_data import get_last_price_from_hyperliquid
             price = get_last_price_from_hyperliquid(symbol, "mainnet")

@@ -24,6 +24,13 @@ from database.models import (
     AccountPromptBinding,
     AccountStrategyConfig,
 )
+from services.hyper_ai_tool_runtime import (
+    HIGH_RISK_TOOL_NAMES,
+    LOW_WRITE_TOOL_NAMES,
+    READONLY_TOOL_NAMES,
+    format_tool_validation_errors,
+    validate_tool_arguments,
+)
 from services.hyper_ai_tools import execute_hyper_ai_tool
 
 logger = logging.getLogger(__name__)
@@ -80,64 +87,9 @@ class ToolFailureTracker:
         return self._failures.get(tool_name, 0)
 
 
-READONLY_TOOLS = {
-    "get_system_overview",
-    "get_wallet_status",
-    "get_api_reference",
-    "get_klines",
-    "get_market_regime",
-    "get_market_flow",
-    "get_system_logs",
-    "get_contact_config",
-    "get_trading_environment",
-    "get_watchlist",
-    "diagnose_trader_issues",
-    "analyze_tracked_address",
-    "get_tracked_wallets",
-    "list_traders",
-    "list_signal_pools",
-    "list_strategies",
-    "query_factors",
-    "evaluate_factor",
-    "get_factor_functions",
-    "web_search",
-    "fetch_url",
-    "load_skill",
-    "load_skill_reference",
-    "call_prompt_ai",
-    "call_program_ai",
-    "call_signal_ai",
-    "call_attribution_ai",
-}
-
-LOW_WRITE_TOOLS = {
-    "save_signal_pool",
-    "save_prompt",
-    "save_program",
-    "create_ai_trader",
-    "update_signal_pool",
-    "save_factor",
-    "edit_factor",
-    "compute_factor",
-    "update_watchlist",
-    "save_memory",
-}
-
-HIGH_RISK_TOOLS = {
-    "bind_prompt_to_trader",
-    "bind_program_to_trader",
-    "update_trader_strategy",
-    "update_ai_trader",
-    "update_program_binding",
-    "update_prompt_binding",
-    "delete_trader",
-    "delete_prompt_template",
-    "delete_signal_definition",
-    "delete_signal_pool",
-    "delete_trading_program",
-    "delete_prompt_binding",
-    "delete_program_binding",
-}
+READONLY_TOOLS = READONLY_TOOL_NAMES
+LOW_WRITE_TOOLS = LOW_WRITE_TOOL_NAMES
+HIGH_RISK_TOOLS = HIGH_RISK_TOOL_NAMES
 
 
 def _parse_json_result(result: str) -> Optional[Dict[str, Any]]:
@@ -253,6 +205,13 @@ def _classify_infra_prone(tool_name: str, parsed: Dict[str, Any]) -> ToolExecuti
 
 
 def classify_default(tool_name: str, parsed: Optional[Dict[str, Any]]) -> ToolExecutionMeta:
+    if parsed and (parsed.get("status") == "blocked" or parsed.get("executed") is False):
+        return ToolExecutionMeta(
+            tool_name=tool_name,
+            status=TOOL_STATUS_BLOCKED,
+            code=str(parsed.get("code") or "blocked"),
+            message=_extract_error_text(parsed) or "Tool call was blocked before execution.",
+        )
     if parsed and parsed.get("error"):
         return _classify_generic_error(tool_name, parsed)
     if parsed and parsed.get("success") is False:
@@ -295,6 +254,9 @@ def classify_tool_result(tool_name: str, result: str) -> ToolExecutionMeta:
             )
         return ToolExecutionMeta(tool_name=tool_name)
 
+    if parsed.get("status") == "blocked" or parsed.get("executed") is False:
+        return classify_default(tool_name, parsed)
+
     classifier = TOOL_CLASSIFIERS.get(tool_name)
     if classifier:
         return classifier(tool_name, parsed)
@@ -308,10 +270,17 @@ def execute_tool_with_meta(
     user_id: int = 1,
     api_config: Optional[Dict[str, Any]] = None,
 ) -> Tuple[str, ToolExecutionMeta]:
+    validation = validate_tool_arguments(tool_name, arguments)
+    if not validation.ok:
+        message = format_tool_validation_errors(validation)
+        meta = blocked_meta(tool_name, message)
+        meta.code = "invalid_tool_arguments"
+        return blocked_tool_result(message), meta
+
     result = execute_hyper_ai_tool(
         db,
         tool_name,
-        arguments,
+        validation.arguments,
         user_id=user_id,
         api_config=api_config,
     )

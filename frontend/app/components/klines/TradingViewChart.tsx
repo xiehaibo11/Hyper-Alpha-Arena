@@ -1,70 +1,32 @@
 import { useEffect, useRef, useState } from 'react'
-import { createChart, CandlestickSeries, HistogramSeries, LineSeries, AreaSeries, Time } from 'lightweight-charts'
+import { createChart, HistogramSeries, LineSeries } from 'lightweight-charts'
 import PacmanLoader from '../ui/pacman-loader'
 import { formatChartTime, localToUtcTimestamp } from '../../lib/dateTime'
-
-// Mobile detection helper
-const isMobileDevice = () => typeof window !== 'undefined' && window.innerWidth < 768
-
-// Mobile price formatter - shorten large numbers
-const formatMobilePrice = (price: number): string => {
-  if (price >= 1000000) {
-    return (price / 1000000).toFixed(2) + 'M'
-  }
-  if (price >= 10000) {
-    return (price / 1000).toFixed(1) + 'K'
-  }
-  if (price >= 1000) {
-    return (price / 1000).toFixed(2) + 'K'
-  }
-  if (price >= 1) {
-    return price.toFixed(2)
-  }
-  if (price >= 0.01) {
-    return price.toFixed(4)
-  }
-  return price.toFixed(6)
-}
-
-function getMarkerParticleColor(marker: { tone?: 'bullish' | 'bearish' | 'mixed'; iconVariant?: 'news' | 'flow-up' | 'flow-down' }) {
-  if (marker.tone === 'bullish' || marker.iconVariant === 'flow-up') return '#00e676'
-  if (marker.tone === 'bearish' || marker.iconVariant === 'flow-down') return '#ff5252'
-  return '#00d4ff'
-}
-
-interface TradingViewChartProps {
-  symbol: string
-  period: string
-  exchange?: 'hyperliquid' | 'binance'
-  chartType: 'candlestick' | 'line' | 'area'
-  selectedIndicators: string[]
-  selectedFlowIndicators?: string[]
-  onLoadingChange: (loading: boolean) => void
-  data?: any[]
-  onLoadMore?: () => void
-  onDataUpdate?: (klines: any[], indicators: any) => void
-  onIndicatorLoadingChange?: (loading: boolean) => void
-  showVolumePane?: boolean
-  eventMarkers?: Array<{
-    id?: string
-    kind?: 'news' | 'flow'
-    time: number
-    position: 'aboveBar' | 'belowBar'
-    color: string
-    shape: 'circle' | 'square' | 'arrowUp' | 'arrowDown'
-    text?: string
-    title?: string
-    summary?: string
-    tone?: 'bullish' | 'bearish' | 'mixed'
-    metadata?: string[]
-    iconVariant?: 'news' | 'flow-up' | 'flow-down'
-  }>
-  activeEventMarkerId?: string
-  onEventMarkerClick?: (eventId: string) => void
-  incrementalRefreshToken?: number
-}
-
-type ChartType = 'candlestick' | 'line' | 'area'
+import {
+  clearFlowSeriesData,
+  createFlowPaneSeries,
+  createFlowSeriesRefs,
+  resetFlowSeriesRefs,
+  showFlowSeries,
+  updateFlowPaneLabel,
+  updateFlowSeries,
+} from './TradingViewChartFlowUtils'
+import {
+  buildOverlayMarkers,
+  drawOverlayMarkerParticles,
+  type ChartOverlayMarker,
+} from './TradingViewChartOverlayUtils'
+import {
+  calculateMA,
+  convertDataForSeries,
+  createMainSeries,
+  createPaneLabel,
+  formatMobilePrice,
+  isMobileDevice,
+  needsChartReinit,
+  type TradingViewChartProps,
+} from './TradingViewChartUtils'
+import TradingViewChartOverlays from './TradingViewChartOverlays'
 
 export default function TradingViewChart({
   symbol,
@@ -115,6 +77,7 @@ export default function TradingViewChart({
   const flowFundingSeriesRef = useRef<any>(null)
   const flowDepthSeriesRef = useRef<any>(null)
   const flowImbalanceSeriesRef = useRef<any>(null)
+  const flowSeriesRefs = createFlowSeriesRefs(flowCvdSeriesRef, flowTakerBuySeriesRef, flowTakerSellSeriesRef, flowOiSeriesRef, flowOiDeltaSeriesRef, flowFundingSeriesRef, flowDepthSeriesRef, flowImbalanceSeriesRef)
   const [activeFlowIndicator, setActiveFlowIndicator] = useState<string | null>(null)
   const [flowDataCache, setFlowDataCache] = useState<Record<string, any[]>>({})
   const [flowDataAvailableFrom, setFlowDataAvailableFrom] = useState<number | null>(null)
@@ -139,37 +102,11 @@ export default function TradingViewChart({
   } | null>(null)
   const [hoveredCandleTime, setHoveredCandleTime] = useState<number | null>(null)
   const [hoveredMarkerCandleTime, setHoveredMarkerCandleTime] = useState<number | null>(null)
-  const [overlayMarkers, setOverlayMarkers] = useState<Array<{
-    key: string
-    x: number
-    y: number
-    marker: any
-  }>>([])
+  const [overlayMarkers, setOverlayMarkers] = useState<ChartOverlayMarker[]>([])
   const overlayRefreshRafRef = useRef<number | null>(null)
   const chartDataRef = useRef<any[]>([])
   const eventMarkersRef = useRef(eventMarkers)
   const lastIncrementalRefreshRef = useRef(0)
-
-  // Market Flow indicator colors
-  const FLOW_COLORS: Record<string, { up: string; down: string; line: string }> = {
-    cvd: { up: '#22c55e', down: '#ef4444', line: '#3b82f6' },
-    taker_volume: { up: '#22c55e', down: '#ef4444', line: '#3b82f6' },
-    oi: { up: '#22c55e', down: '#ef4444', line: '#8b5cf6' },
-    oi_delta: { up: '#22c55e', down: '#ef4444', line: '#8b5cf6' },
-    funding: { up: '#22c55e', down: '#ef4444', line: '#f59e0b' },
-    depth_ratio: { up: '#22c55e', down: '#ef4444', line: '#06b6d4' },
-    order_imbalance: { up: '#22c55e', down: '#ef4444', line: '#ec4899' }
-  }
-
-  const FLOW_LABELS: Record<string, string> = {
-    cvd: 'CVD',
-    taker_volume: 'Taker Volume',
-    oi: 'Open Interest',
-    oi_delta: 'OI Delta',
-    funding: 'Funding Rate (bps)',
-    depth_ratio: 'Depth Ratio (log)',
-    order_imbalance: 'Order Imbalance'
-  }
 
   const scheduleOverlayRefresh = () => {
     if (typeof window === 'undefined') return
@@ -184,78 +121,14 @@ export default function TradingViewChart({
         return
       }
 
-      const currentChartData = chartDataRef.current
-      const currentEventMarkers = eventMarkersRef.current
-
-      const findNearestPoint = (chartTime: number) => {
-        let best = currentChartData[0]
-        let bestDiff = Math.abs(currentChartData[0].time - chartTime)
-        for (let i = 1; i < currentChartData.length; i += 1) {
-          const diff = Math.abs(currentChartData[i].time - chartTime)
-          if (diff < bestDiff) {
-            best = currentChartData[i]
-            bestDiff = diff
-          }
-        }
-        return best
-      }
-
-      const nextMarkers: Array<{ key: string; x: number; y: number; marker: any }> = []
-      const grouped = new Map<string, Array<{ marker: any; candle: any; position: string }>>()
-
-      for (const marker of currentEventMarkers) {
-        const chartTime = formatChartTime(marker.time / 1000) as number
-        const candle = findNearestPoint(chartTime)
-        const key = `${candle.time}:${marker.position}`
-        const existing = grouped.get(key) || []
-        existing.push({ marker, candle, position: marker.position })
-        grouped.set(key, existing)
-      }
-
-      grouped.forEach((entries, groupKey) => {
-        const [candleTimeRaw] = groupKey.split(':')
-        const candle = entries[0]?.candle
-        if (!candle) return
-        const x = chartRef.current.timeScale().timeToCoordinate(candle.time as Time)
-        if (x === null || x === undefined) return
-        const containerWidth = chartContainerRef.current?.clientWidth || 0
-        const containerHeight = chartContainerRef.current?.clientHeight || 0
-        const safeLeft = 16
-        const safeRight = Math.max(safeLeft + 1, containerWidth - 92)
-        if (x < safeLeft) return
-
-        const sorted = [...entries].sort((a, b) => a.marker.time - b.marker.time)
-        sorted.forEach(({ marker }, index) => {
-          const row = index % 3
-          const column = Math.floor(index / 3)
-          const xOffset = column === 0 ? 0 : (column % 2 === 1 ? column * 7 : -column * 7)
-          const baseY = seriesRef.current.priceToCoordinate(candle.low)
-          if (baseY === null || baseY === undefined) return
-          const y = Math.min(baseY + 22 + row * 12, Math.max(48, containerHeight - 36))
-          nextMarkers.push({
-            key: marker.id || `${marker.kind || 'event'}-${marker.time}-${index}`,
-            x: Math.min(Math.max(x + xOffset, safeLeft), safeRight),
-            y,
-            marker: {
-              ...marker,
-              chartTime: Number(candleTimeRaw),
-            },
-          })
-        })
-      })
-
-      setOverlayMarkers(nextMarkers)
+      setOverlayMarkers(buildOverlayMarkers({
+        chart: chartRef.current,
+        series: seriesRef.current,
+        container: chartContainerRef.current,
+        chartData: chartDataRef.current,
+        eventMarkers: eventMarkersRef.current,
+      }))
     })
-  }
-
-  // 检测是否需要重新初始化图表（子图结构变化）
-  const needsChartReinit = (prevIndicators: string[], newIndicators: string[]) => {
-    const subplotIndicators = ['RSI14', 'RSI7', 'MACD', 'ATR14', 'STOCH', 'OBV']
-    const prevSubplots = prevIndicators.filter(ind => subplotIndicators.includes(ind))
-    const newSubplots = newIndicators.filter(ind => subplotIndicators.includes(ind))
-
-    // 子图指标从无到有，或从有到无，需要重新初始化
-    return (prevSubplots.length === 0) !== (newSubplots.length === 0)
   }
 
   // Calculate pane positions for selector placement
@@ -292,100 +165,6 @@ export default function TradingViewChart({
       setFlowPaneTop(null)
     }
   }
-
-  // 创建 pane 标签的 primitive
-  const createPaneLabel = (text: string) => ({
-    paneViews() {
-      return [{
-        renderer() {
-          return {
-            draw(target: any) {
-              target.useMediaCoordinateSpace((scope: any) => {
-                const ctx = scope.context
-                ctx.font = '12px -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'
-                ctx.fillStyle = 'rgba(156, 163, 175, 0.6)'
-                ctx.textAlign = 'left'
-                ctx.textBaseline = 'top'
-                ctx.fillText(text, 8, 8)
-              })
-            }
-          }
-        }
-      }]
-    }
-  })
-
-  // 创建主图表系列
-  const createMainSeries = (chart: any, type: ChartType) => {
-    switch (type) {
-      case 'candlestick':
-        return chart.addSeries(CandlestickSeries, {
-          upColor: '#22c55e',
-          downColor: '#ef4444',
-          borderDownColor: '#ef4444',
-          borderUpColor: '#22c55e',
-          wickDownColor: '#ef4444',
-          wickUpColor: '#22c55e',
-        })
-      case 'line':
-        return chart.addSeries(LineSeries, {
-          color: '#3b82f6',
-          lineWidth: 2,
-        })
-      case 'area':
-        return chart.addSeries(AreaSeries, {
-          topColor: '#3b82f640',
-          bottomColor: '#3b82f610',
-          lineColor: '#3b82f6',
-          lineWidth: 2,
-        })
-      default:
-        return chart.addSeries(CandlestickSeries, {
-          upColor: '#22c55e',
-          downColor: '#ef4444',
-          borderDownColor: '#ef4444',
-          borderUpColor: '#22c55e',
-          wickDownColor: '#ef4444',
-          wickUpColor: '#22c55e',
-        })
-    }
-  }
-
-  // 转换数据格式
-  const convertDataForSeries = (data: any[], type: ChartType) => {
-    switch (type) {
-      case 'candlestick':
-        return data.map(item => ({
-          time: item.time,
-          open: item.open,
-          high: item.high,
-          low: item.low,
-          close: item.close,
-        }))
-      case 'line':
-      case 'area':
-        return data.map(item => ({
-          time: item.time,
-          value: item.close,
-        }))
-      default:
-        return data
-    }
-  }
-
-  // 计算移动平均线
-  const calculateMA = (data: any[], period: number) => {
-    const result = []
-    for (let i = period - 1; i < data.length; i++) {
-      const sum = data.slice(i - period + 1, i + 1).reduce((acc, item) => acc + item.close, 0)
-      result.push({
-        time: data[i].time,
-        value: sum / period,
-      })
-    }
-    return result
-  }
-
 
   // 图表初始化 - 只在chartType变化时重新初始化
   useEffect(() => {
@@ -681,17 +460,9 @@ export default function TradingViewChart({
           obvSeriesRef.current = null
           indicatorPaneRef.current = null
           indicatorLabelRef.current = null
-          // Clean up flow refs
           flowPaneRef.current = null
           flowLabelRef.current = null
-          flowCvdSeriesRef.current = null
-          flowTakerBuySeriesRef.current = null
-          flowTakerSellSeriesRef.current = null
-          flowOiSeriesRef.current = null
-          flowOiDeltaSeriesRef.current = null
-          flowFundingSeriesRef.current = null
-          flowDepthSeriesRef.current = null
-          flowImbalanceSeriesRef.current = null
+          resetFlowSeriesRefs(flowSeriesRefs)
         }
       }
     } catch (error) {
@@ -723,48 +494,13 @@ export default function TradingViewChart({
     const container = chartContainerRef.current
     if (!canvas || !container) return
 
-    const width = container.clientWidth
-    const height = container.clientHeight
-    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1
-
-    canvas.width = Math.max(1, Math.floor(width * dpr))
-    canvas.height = Math.max(1, Math.floor(height * dpr))
-    canvas.style.width = `${width}px`
-    canvas.style.height = `${height}px`
-
-    const ctx = canvas.getContext('2d')
-    if (!ctx) return
-
-    ctx.setTransform(1, 0, 0, 1, 0, 0)
-    ctx.scale(dpr, dpr)
-    ctx.clearRect(0, 0, width, height)
-
-    overlayMarkers.forEach((item) => {
-      const marker = item.marker
-      const isCandleActive = (hoveredMarkerCandleTime ?? hoveredCandleTime) === marker.chartTime
-      const isSelected = activeEventMarkerId === marker.id
-      const radius = marker.kind === 'news' ? 3.2 : 4.2
-      const glow = isSelected ? 18 : isCandleActive ? 13 : 9
-      const alpha = isSelected ? 0.96 : isCandleActive ? 0.78 : 0.42
-      const color = getMarkerParticleColor(marker)
-
-      ctx.save()
-      ctx.fillStyle = color
-      ctx.globalAlpha = alpha
-      ctx.shadowColor = color
-      ctx.shadowBlur = glow
-      ctx.beginPath()
-      ctx.arc(item.x, item.y, radius, 0, Math.PI * 2)
-      ctx.fill()
-
-      if (isSelected || isCandleActive) {
-        ctx.globalAlpha = isSelected ? 0.34 : 0.22
-        ctx.beginPath()
-        ctx.arc(item.x, item.y, radius + 5, 0, Math.PI * 2)
-        ctx.fill()
-      }
-
-      ctx.restore()
+    drawOverlayMarkerParticles({
+      canvas,
+      container,
+      overlayMarkers,
+      hoveredMarkerCandleTime,
+      hoveredCandleTime,
+      activeEventMarkerId,
     })
   }, [overlayMarkers, hoveredMarkerCandleTime, hoveredCandleTime, activeEventMarkerId])
 
@@ -789,17 +525,9 @@ export default function TradingViewChart({
       // 保存当前数据，重新初始化图表
       if (chartRef.current) {
         chartRef.current.remove()
-        // Clear flow pane refs since chart is destroyed - they will be recreated
         flowPaneRef.current = null
         flowLabelRef.current = null
-        flowCvdSeriesRef.current = null
-        flowTakerBuySeriesRef.current = null
-        flowTakerSellSeriesRef.current = null
-        flowOiSeriesRef.current = null
-        flowOiDeltaSeriesRef.current = null
-        flowFundingSeriesRef.current = null
-        flowDepthSeriesRef.current = null
-        flowImbalanceSeriesRef.current = null
+        resetFlowSeriesRefs(flowSeriesRefs)
       }
 
       try {
@@ -1156,46 +884,14 @@ export default function TradingViewChart({
             flowLabelRef.current = labelPrimitive
             flowPaneRef.current = flowPane
 
-            // Pre-create all flow series
-            flowCvdSeriesRef.current = flowPane.addSeries(LineSeries, {
-              color: FLOW_COLORS.cvd.line, lineWidth: 2, visible: false,
-              priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
-            })
-            flowTakerBuySeriesRef.current = flowPane.addSeries(HistogramSeries, {
-              color: FLOW_COLORS.taker_volume.up, visible: false,
-              priceFormat: { type: 'volume' }
-            })
-            flowTakerSellSeriesRef.current = flowPane.addSeries(HistogramSeries, {
-              color: FLOW_COLORS.taker_volume.down, visible: false,
-              priceFormat: { type: 'volume' }
-            })
-            flowOiSeriesRef.current = flowPane.addSeries(LineSeries, {
-              color: FLOW_COLORS.oi.line, lineWidth: 2, visible: false,
-              priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
-            })
-            flowOiDeltaSeriesRef.current = flowPane.addSeries(HistogramSeries, {
-              color: FLOW_COLORS.oi_delta.line, visible: false,
-              priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
-            })
-            flowFundingSeriesRef.current = flowPane.addSeries(LineSeries, {
-              color: FLOW_COLORS.funding.line, lineWidth: 2, visible: false,
-              priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
-            })
-            flowDepthSeriesRef.current = flowPane.addSeries(LineSeries, {
-              color: FLOW_COLORS.depth_ratio.line, lineWidth: 2, visible: false,
-              priceFormat: { type: 'price', precision: 4, minMove: 0.0001 }
-            })
-            flowImbalanceSeriesRef.current = flowPane.addSeries(HistogramSeries, {
-              color: FLOW_COLORS.order_imbalance.line, visible: false,
-              priceFormat: { type: 'price', precision: 4, minMove: 0.0001 }
-            })
+            createFlowPaneSeries(flowPane, flowSeriesRefs)
 
             // Show active indicator and fetch data
             if (activeFlowIndicator) {
-              showFlowSeries(activeFlowIndicator)
-              updateFlowPaneLabel(activeFlowIndicator)
+              showFlowSeries(activeFlowIndicator, flowSeriesRefs)
+              updateFlowPaneLabel(flowLabelRef, activeFlowIndicator)
               if (flowDataCache[activeFlowIndicator]) {
-                updateFlowSeries(activeFlowIndicator, flowDataCache[activeFlowIndicator])
+                updateFlowSeries(activeFlowIndicator, flowDataCache[activeFlowIndicator], flowSeriesRefs)
               } else {
                 fetchFlowData(activeFlowIndicator)
               }
@@ -1543,117 +1239,11 @@ export default function TradingViewChart({
       setFlowDataCache(prev => ({ ...prev, [indicator]: indicatorData }))
 
       // Update the series
-      updateFlowSeries(indicator, indicatorData)
+      updateFlowSeries(indicator, indicatorData, flowSeriesRefs)
     } catch (error) {
       console.error('Failed to fetch flow data:', error)
     } finally {
       onIndicatorLoadingChange?.(false)
-    }
-  }
-
-  // Get series ref for a flow indicator
-  const getFlowSeriesRef = (indicator: string) => {
-    switch (indicator) {
-      case 'cvd': return flowCvdSeriesRef
-      case 'taker_volume': return { buy: flowTakerBuySeriesRef, sell: flowTakerSellSeriesRef }
-      case 'oi': return flowOiSeriesRef
-      case 'oi_delta': return flowOiDeltaSeriesRef
-      case 'funding': return flowFundingSeriesRef
-      case 'depth_ratio': return flowDepthSeriesRef
-      case 'order_imbalance': return flowImbalanceSeriesRef
-      default: return null
-    }
-  }
-
-  // Update flow series with data
-  const updateFlowSeries = (indicator: string, data: any[]) => {
-    if (!data || data.length === 0) return
-
-    const colors = FLOW_COLORS[indicator]
-
-    if (indicator === 'taker_volume') {
-      if (flowTakerBuySeriesRef.current) {
-        const buyData = data.map(d => ({
-          time: formatChartTime(d.time),
-          value: d.buy || 0,
-          color: colors.up
-        }))
-        flowTakerBuySeriesRef.current.setData(buyData)
-      }
-      if (flowTakerSellSeriesRef.current) {
-        const sellData = data.map(d => ({
-          time: formatChartTime(d.time),
-          value: -(d.sell || 0),
-          color: colors.down
-        }))
-        flowTakerSellSeriesRef.current.setData(sellData)
-      }
-    } else {
-      const seriesRef = getFlowSeriesRef(indicator)
-      if (seriesRef && 'current' in seriesRef && seriesRef.current) {
-        if (['oi_delta', 'order_imbalance'].includes(indicator)) {
-          const histData = data.map(d => ({
-            time: formatChartTime(d.time),
-            value: d.value || 0,
-            color: (d.value || 0) >= 0 ? colors.up : colors.down
-          }))
-          seriesRef.current.setData(histData)
-        } else if (indicator === 'depth_ratio') {
-          // Use log scale for depth_ratio to handle extreme values
-          const lineData = data.map(d => ({
-            time: formatChartTime(d.time),
-            value: d.value > 0 ? Math.log10(d.value) : 0
-          }))
-          seriesRef.current.setData(lineData)
-        } else if (indicator === 'funding') {
-          // Multiply by 10000 to convert to basis points (bps) for better display
-          // e.g., 0.000292% becomes 2.92 bps
-          const lineData = data.map(d => ({
-            time: formatChartTime(d.time),
-            value: (d.value || 0) * 10000
-          }))
-          seriesRef.current.setData(lineData)
-        } else {
-          const lineData = data.map(d => ({
-            time: formatChartTime(d.time),
-            value: d.value
-          }))
-          seriesRef.current.setData(lineData)
-        }
-      }
-    }
-  }
-
-  // Update flow pane label
-  const updateFlowPaneLabel = (indicator: string) => {
-    if (flowLabelRef.current && flowLabelRef.current.updateText) {
-      flowLabelRef.current.updateText(FLOW_LABELS[indicator] || indicator)
-    }
-  }
-
-  // Hide all flow series
-  const hideAllFlowSeries = () => {
-    flowCvdSeriesRef.current?.applyOptions({ visible: false })
-    flowTakerBuySeriesRef.current?.applyOptions({ visible: false })
-    flowTakerSellSeriesRef.current?.applyOptions({ visible: false })
-    flowOiSeriesRef.current?.applyOptions({ visible: false })
-    flowOiDeltaSeriesRef.current?.applyOptions({ visible: false })
-    flowFundingSeriesRef.current?.applyOptions({ visible: false })
-    flowDepthSeriesRef.current?.applyOptions({ visible: false })
-    flowImbalanceSeriesRef.current?.applyOptions({ visible: false })
-  }
-
-  // Show specific flow series
-  const showFlowSeries = (indicator: string) => {
-    hideAllFlowSeries()
-    if (indicator === 'taker_volume') {
-      flowTakerBuySeriesRef.current?.applyOptions({ visible: true })
-      flowTakerSellSeriesRef.current?.applyOptions({ visible: true })
-    } else {
-      const seriesRef = getFlowSeriesRef(indicator)
-      if (seriesRef && 'current' in seriesRef && seriesRef.current) {
-        seriesRef.current.applyOptions({ visible: true })
-      }
     }
   }
 
@@ -1797,46 +1387,7 @@ export default function TradingViewChart({
         flowLabelRef.current = labelPrimitive
         flowPaneRef.current = flowPane
 
-        // Pre-create all series (initially hidden)
-        // CVD - Line
-        flowCvdSeriesRef.current = flowPane.addSeries(LineSeries, {
-          color: FLOW_COLORS.cvd.line, lineWidth: 2, visible: false,
-          priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
-        })
-        // Taker Volume - Dual Histogram
-        flowTakerBuySeriesRef.current = flowPane.addSeries(HistogramSeries, {
-          color: FLOW_COLORS.taker_volume.up, visible: false,
-          priceFormat: { type: 'volume' }
-        })
-        flowTakerSellSeriesRef.current = flowPane.addSeries(HistogramSeries, {
-          color: FLOW_COLORS.taker_volume.down, visible: false,
-          priceFormat: { type: 'volume' }
-        })
-        // OI - Line
-        flowOiSeriesRef.current = flowPane.addSeries(LineSeries, {
-          color: FLOW_COLORS.oi.line, lineWidth: 2, visible: false,
-          priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
-        })
-        // OI Delta - Histogram
-        flowOiDeltaSeriesRef.current = flowPane.addSeries(HistogramSeries, {
-          color: FLOW_COLORS.oi_delta.line, visible: false,
-          priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
-        })
-        // Funding - Line (values converted to bps, e.g., 0.000292% -> 2.92 bps)
-        flowFundingSeriesRef.current = flowPane.addSeries(LineSeries, {
-          color: FLOW_COLORS.funding.line, lineWidth: 2, visible: false,
-          priceFormat: { type: 'price', precision: 2, minMove: 0.01 }
-        })
-        // Depth Ratio - Line
-        flowDepthSeriesRef.current = flowPane.addSeries(LineSeries, {
-          color: FLOW_COLORS.depth_ratio.line, lineWidth: 2, visible: false,
-          priceFormat: { type: 'price', precision: 4, minMove: 0.0001 }
-        })
-        // Order Imbalance - Histogram
-        flowImbalanceSeriesRef.current = flowPane.addSeries(HistogramSeries, {
-          color: FLOW_COLORS.order_imbalance.line, visible: false,
-          priceFormat: { type: 'price', precision: 4, minMove: 0.0001 }
-        })
+        createFlowPaneSeries(flowPane, flowSeriesRefs)
         // Update pane positions after flow pane created
         updatePanePositions()
       }
@@ -1864,17 +1415,9 @@ export default function TradingViewChart({
         const panes = chart.panes()
         const paneIndex = panes.indexOf(flowPaneRef.current)
 
-        // Clear refs first to prevent any further operations
         flowPaneRef.current = null
         flowLabelRef.current = null
-        flowCvdSeriesRef.current = null
-        flowTakerBuySeriesRef.current = null
-        flowTakerSellSeriesRef.current = null
-        flowOiSeriesRef.current = null
-        flowOiDeltaSeriesRef.current = null
-        flowFundingSeriesRef.current = null
-        flowDepthSeriesRef.current = null
-        flowImbalanceSeriesRef.current = null
+        resetFlowSeriesRefs(flowSeriesRefs)
 
         // Now remove the pane by index (removePane takes index, not pane object)
         if (paneIndex > 0) {
@@ -1899,32 +1442,24 @@ export default function TradingViewChart({
     if (!activeFlowIndicator || !flowPaneRef.current) return
 
     // Show the active series
-    showFlowSeries(activeFlowIndicator)
+    showFlowSeries(activeFlowIndicator, flowSeriesRefs)
 
     // Update label
-    updateFlowPaneLabel(activeFlowIndicator)
+    updateFlowPaneLabel(flowLabelRef, activeFlowIndicator)
 
     // Fetch data if not cached
     if (!flowDataCache[activeFlowIndicator]) {
       fetchFlowData(activeFlowIndicator)
     } else {
       // Use cached data
-      updateFlowSeries(activeFlowIndicator, flowDataCache[activeFlowIndicator])
+      updateFlowSeries(activeFlowIndicator, flowDataCache[activeFlowIndicator], flowSeriesRefs)
     }
   }, [activeFlowIndicator])
 
   // Re-fetch flow data when symbol, period, exchange, or chartData changes
   useEffect(() => {
     if (selectedFlowIndicators.length > 0 && flowPaneRef.current && chartData.length > 0) {
-      // Clear all flow series data first (consistent with main chart behavior)
-      if (flowCvdSeriesRef.current) flowCvdSeriesRef.current.setData([])
-      if (flowTakerBuySeriesRef.current) flowTakerBuySeriesRef.current.setData([])
-      if (flowTakerSellSeriesRef.current) flowTakerSellSeriesRef.current.setData([])
-      if (flowOiSeriesRef.current) flowOiSeriesRef.current.setData([])
-      if (flowOiDeltaSeriesRef.current) flowOiDeltaSeriesRef.current.setData([])
-      if (flowFundingSeriesRef.current) flowFundingSeriesRef.current.setData([])
-      if (flowDepthSeriesRef.current) flowDepthSeriesRef.current.setData([])
-      if (flowImbalanceSeriesRef.current) flowImbalanceSeriesRef.current.setData([])
+      clearFlowSeriesData(flowSeriesRefs)
       // Clear cache and re-fetch active indicator
       setFlowDataCache({})
       if (activeFlowIndicator) {
@@ -1935,161 +1470,30 @@ export default function TradingViewChart({
 
   return (
     <div className="relative h-full w-full overflow-hidden">
-
-
-      {/* 图表容器 - 铺满父元素 */}
-      <div ref={chartContainerRef} className="w-full h-full" />
-      <canvas ref={overlayCanvasRef} className="pointer-events-none absolute inset-0 z-[5]" />
-
-      <div className="pointer-events-none absolute inset-0 z-10 overflow-hidden">
-        {overlayMarkers.map((item) => (
-          (() => {
-            const isCandleActive = (hoveredMarkerCandleTime ?? hoveredCandleTime) === item.marker.chartTime
-            const isSelected = activeEventMarkerId === item.marker.id
-            const scaleClass = isSelected
-              ? 'scale-[1.2]'
-              : isCandleActive
-                ? 'scale-110'
-                : 'scale-100'
-            const opacityClass = isSelected || isCandleActive ? 'opacity-100' : 'opacity-70'
-            return (
-          <button
-            key={item.key}
-            type="button"
-            className={`pointer-events-auto absolute z-10 h-6 w-6 -translate-x-1/2 -translate-y-1/2 rounded-full border border-transparent bg-transparent outline-none transition-all duration-150 ${isSelected ? 'ring-2 ring-sky-300/55 ring-offset-2 ring-offset-background' : ''} ${scaleClass} ${opacityClass}`}
-            style={{ left: item.x, top: item.y }}
-            onMouseEnter={() => {
-              setHoveredMarker({ x: item.x, y: item.y, marker: item.marker })
-              setHoveredMarkerCandleTime(item.marker.chartTime ?? null)
-            }}
-            onMouseLeave={() => {
-              setHoveredMarker(null)
-              setHoveredMarkerCandleTime(null)
-            }}
-            onClick={() => {
-              if (item.marker.id) onEventMarkerClick?.(item.marker.id)
-              setHoveredMarker({ x: item.x, y: item.y, marker: item.marker })
-              setHoveredMarkerCandleTime(item.marker.chartTime ?? null)
-            }}
-          />
-            )
-          })()
-        ))}
-      </div>
-
-      {hoveredMarker && (
-        <div
-          className="pointer-events-none absolute z-20 w-64 rounded-xl border border-border bg-background/95 p-3 shadow-xl backdrop-blur-sm"
-          style={{
-            left: Math.min(Math.max(hoveredMarker.x + 16, 12), (chartContainerRef.current?.clientWidth || 320) - 272),
-            top: Math.min(Math.max(hoveredMarker.y + 16, 12), (chartContainerRef.current?.clientHeight || 240) - 140),
-          }}
-        >
-          <div className="flex items-center justify-between gap-2">
-            <div className="text-xs font-semibold text-foreground">{hoveredMarker.marker.title || hoveredMarker.marker.kind || 'Event'}</div>
-            {hoveredMarker.marker.tone && (
-              <div className={`text-[10px] uppercase tracking-[0.2em] ${
-                hoveredMarker.marker.tone === 'bullish'
-                  ? 'text-emerald-600'
-                  : hoveredMarker.marker.tone === 'bearish'
-                    ? 'text-orange-600'
-                    : 'text-slate-500'
-              }`}>
-                {hoveredMarker.marker.tone}
-              </div>
-            )}
-          </div>
-          {hoveredMarker.marker.summary && (
-            <div className="mt-1 text-xs leading-5 text-muted-foreground">
-              {hoveredMarker.marker.summary}
-            </div>
-          )}
-          <div className="mt-2 text-[11px] text-muted-foreground">
-            {new Date(hoveredMarker.marker.time).toLocaleString()}
-          </div>
-          {Array.isArray(hoveredMarker.marker.metadata) && hoveredMarker.marker.metadata.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              {hoveredMarker.marker.metadata.slice(0, 3).map((item: string, index: number) => (
-                <span key={`${hoveredMarker.marker.id || hoveredMarker.marker.time}-${index}`} className="rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
-                  {item}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-
-      {/* 指标子图切换器 - positioned at indicator pane top-left */}
-      {(() => {
-        const subplotIndicators = selectedIndicators.filter(ind => ['RSI14', 'RSI7', 'MACD', 'ATR14', 'STOCH', 'OBV'].includes(ind))
-        // Always show selector when there are indicators (1 or more)
-        if (subplotIndicators.length === 0 || indicatorPaneTop === null) return null
-
-        const currentActiveSubplot = activeSubplot || subplotIndicators[0]
-
-        return (
-          <div
-            className="absolute left-2 z-10 flex items-center bg-background/80 backdrop-blur-sm rounded-md p-1 px-2 border text-xs"
-            style={{ top: indicatorPaneTop + 4 }}
-          >
-            <select
-              value={currentActiveSubplot}
-              onChange={(e) => setActiveSubplot(e.target.value)}
-              className="bg-transparent border-0 text-xs focus:outline-none cursor-pointer"
-              disabled={subplotIndicators.length === 1}
-            >
-              {subplotIndicators.map(indicator => (
-                <option key={indicator} value={indicator}>
-                  {indicator}
-                </option>
-              ))}
-            </select>
-          </div>
-        )
-      })()}
-
-      {/* Market Flow indicator selector - positioned at flow pane top-left */}
-      {/* Always show selector when there are flow indicators (1 or more) */}
-      {selectedFlowIndicators.length > 0 && activeFlowIndicator && flowPaneTop !== null && (
-        <div
-          className="absolute left-2 z-10 flex items-center gap-2 bg-background/80 backdrop-blur-sm rounded-md p-1 px-2 border text-xs"
-          style={{ top: flowPaneTop + 4 }}
-        >
-          <select
-            value={activeFlowIndicator}
-            onChange={(e) => setActiveFlowIndicator(e.target.value)}
-            className="bg-transparent border-0 text-xs focus:outline-none cursor-pointer text-cyan-400"
-            disabled={selectedFlowIndicators.length === 1}
-          >
-            {selectedFlowIndicators.map(indicator => (
-              <option key={indicator} value={indicator}>
-                {FLOW_LABELS[indicator]}
-              </option>
-            ))}
-          </select>
-          {flowDataAvailableFrom && (
-            <span className="text-muted-foreground">
-              from {new Date(flowDataAvailableFrom).toLocaleDateString()}
-            </span>
-          )}
-        </div>
-      )}
-
-      {/* 自定义水印 */}
-      <div className="absolute bottom-2 right-2 text-xs text-muted-foreground/30 pointer-events-none select-none">
-        Hyper Alpha Arena
-      </div>
-
-
-      {!loading && !hasData && (
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="text-center text-muted-foreground">
-            <p className="text-lg font-medium">No K-line data available</p>
-            <p className="text-sm">Click "Backfill Historical Data" to fetch data</p>
-          </div>
-        </div>
-      )}
+      <TradingViewChartOverlays
+        chartContainerRef={chartContainerRef}
+        overlayCanvasRef={overlayCanvasRef}
+        overlayMarkers={overlayMarkers}
+        hoveredMarker={hoveredMarker}
+        hoveredCandleTime={hoveredCandleTime}
+        hoveredMarkerCandleTime={hoveredMarkerCandleTime}
+        activeEventMarkerId={activeEventMarkerId}
+        selectedIndicators={selectedIndicators}
+        selectedFlowIndicators={selectedFlowIndicators}
+        activeSubplot={activeSubplot}
+        activeFlowIndicator={activeFlowIndicator}
+        flowDataAvailableFrom={flowDataAvailableFrom}
+        indicatorPaneTop={indicatorPaneTop}
+        flowPaneTop={flowPaneTop}
+        loading={loading}
+        hasData={hasData}
+        onEventMarkerClick={onEventMarkerClick}
+        setHoveredMarker={setHoveredMarker}
+        setHoveredMarkerCandleTime={setHoveredMarkerCandleTime}
+        setActiveSubplot={setActiveSubplot}
+        setActiveFlowIndicator={setActiveFlowIndicator}
+      />
     </div>
+
   )
 }

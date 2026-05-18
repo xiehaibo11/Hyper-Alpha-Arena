@@ -1,6 +1,7 @@
 """Application startup initialization service"""
 
 import logging
+import os
 import threading
 
 from services.auto_trader import (
@@ -44,6 +45,15 @@ def initialize_services():
         refresh_binance_symbols()
         schedule_binance_symbol_refresh()
         logger.info("[Binance] Symbol catalog refreshed and periodic refresh scheduled")
+
+        # Refresh OKX symbol catalog + schedule periodic updates
+        from services.okx_symbol_service import (
+            refresh_okx_symbols,
+            schedule_symbol_refresh_task as schedule_okx_symbol_refresh,
+        )
+        refresh_okx_symbols()
+        schedule_okx_symbol_refresh()
+        logger.info("[OKX] Symbol catalog refreshed and periodic refresh scheduled")
 
         # Set up market-related scheduled tasks
         setup_market_tasks()
@@ -145,7 +155,12 @@ def initialize_services():
             interval_seconds=6 * 3600,  # 6 hours
             task_id="market_flow_data_cleanup"
         )
-        logger.info("Market flow data cleanup task started (6-hour interval, 30-day retention)")
+        threading.Thread(
+            target=cleanup_old_market_flow_data,
+            daemon=True,
+            name="market-data-archive-initial",
+        ).start()
+        logger.info("Market flow data archive cleanup task started (6-hour interval)")
 
         # Start Binance data collector (REST API polling) - uses Binance Watchlist
         from services.exchanges.binance_collector import binance_collector
@@ -161,6 +176,47 @@ def initialize_services():
         binance_ws_collector.start(symbols=binance_watchlist if binance_watchlist else ["BTC"])
         print("Binance WebSocket collector started")
         logger.info(f"[Binance] WebSocket collector started with symbols: {binance_watchlist}")
+
+        # Start Binance K-line WebSocket collector (closed-candle persistence)
+        from services.exchanges.binance_kline_ws_collector import binance_kline_ws_collector
+        binance_kline_ws_collector.start(symbols=binance_watchlist if binance_watchlist else ["BTC"])
+        print("Binance K-line WebSocket collector started")
+        logger.info(f"[Binance] K-line WebSocket collector started with symbols: {binance_watchlist}")
+
+        # Start OKX public data collector (REST API polling) - uses OKX Watchlist.
+        if os.getenv("OKX_COLLECTOR_ENABLED", "true").strip().lower() in {"1", "true", "yes", "on"}:
+            from services.exchanges.okx_collector import okx_collector
+            from services.okx_symbol_service import get_selected_symbols as get_okx_selected_symbols
+
+            okx_watchlist = get_okx_selected_symbols()
+            print(f"Starting OKX data collector with OKX watchlist: {okx_watchlist}")
+            okx_collector.start(symbols=okx_watchlist if okx_watchlist else ["BTC"])
+            print("OKX data collector started")
+            logger.info("[OKX] Data collector started with symbols: %s", okx_watchlist)
+        else:
+            logger.info("[OKX] Data collector disabled by OKX_COLLECTOR_ENABLED")
+
+        # Start 数据.md K-line coverage sub-AI worker. It checks all required
+        # Binance K-line periods/indicators every 3 minutes and refreshes gaps
+        # with a bounded request budget.
+        from services.binance_kline_coverage_service import (
+            CHECK_INTERVAL_SECONDS as BINANCE_KLINE_COVERAGE_INTERVAL_SECONDS,
+            run_binance_kline_coverage_check,
+        )
+        task_scheduler.add_interval_task(
+            task_func=run_binance_kline_coverage_check,
+            interval_seconds=BINANCE_KLINE_COVERAGE_INTERVAL_SECONDS,
+            task_id="binance_kline_coverage_check",
+        )
+        threading.Thread(
+            target=run_binance_kline_coverage_check,
+            daemon=True,
+            name="binance-kline-coverage-initial",
+        ).start()
+        logger.info(
+            "[Binance] 数据.md K-line coverage sub-AI scheduled (%s-second interval)",
+            BINANCE_KLINE_COVERAGE_INTERVAL_SECONDS,
+        )
 
         # Start Factor Computation Engine (if enabled)
         from config.settings import FACTOR_ENGINE_ENABLED
@@ -184,6 +240,15 @@ def initialize_services():
         print("News collector service started")
         logger.info("News collector service started (60s scheduler, per-source intervals)")
 
+        # Build advisory snapshots from sub-AI/data modules for Arena + main AI context.
+        from services.arena_ai_context_service import recompute_default_arena_ai_context
+        task_scheduler.add_interval_task(
+            task_func=recompute_default_arena_ai_context,
+            interval_seconds=180,
+            task_id="arena_ai_context_refresh"
+        )
+        logger.info("Arena AI advisory context refresh scheduled (3-minute interval)")
+
         # Start News AI Classification (batch job every 30 minutes)
         from services.news_ai_classifier import classify_pending_articles
         task_scheduler.add_interval_task(
@@ -192,6 +257,12 @@ def initialize_services():
             task_id="news_ai_classifier"
         )
         logger.info("News AI classifier scheduled (30-min interval)")
+
+        # Start Hyper AI Auto Dream: autonomous background memory consolidation
+        # with Claude-style time/session gates and a single-process lock.
+        from services.hyper_ai_auto_dream_service import schedule_auto_dream_task
+        schedule_auto_dream_task()
+        logger.info("Hyper AI Auto Dream scheduled")
 
         logger.info("All services initialized successfully")
 
@@ -228,6 +299,17 @@ def shutdown_services():
         from services.exchanges.binance_ws_collector import binance_ws_collector
         binance_ws_collector.stop()
 
+        # Stop Binance K-line WebSocket collector
+        from services.exchanges.binance_kline_ws_collector import binance_kline_ws_collector
+        binance_kline_ws_collector.stop()
+
+        # Stop OKX data collector
+        from services.exchanges.okx_collector import okx_collector
+        okx_collector.stop()
+
+        from services.system_logger import price_snapshot_logger
+        price_snapshot_logger.stop()
+
         # Stop News Collector
         from services.news_collector_service import news_collector_service
         news_collector_service.stop()
@@ -251,7 +333,7 @@ async def shutdown_event():
 
 def schedule_auto_trading(interval_seconds: int = 300, max_ratio: float = 0.2, use_ai: bool = True) -> None:
     """Schedule automatic trading tasks
-    
+
     Args:
         interval_seconds: Interval between trading attempts
         max_ratio: Maximum portion of portfolio to use per trade
@@ -290,7 +372,7 @@ def schedule_auto_trading(interval_seconds: int = 300, max_ratio: float = 0.2, u
         task_id=job_id,
         max_ratio=max_ratio,
     )
-    
+
     # Execute the first trade immediately in a separate thread to avoid blocking
     initial_trade = threading.Thread(target=execute_trade, daemon=True)
     initial_trade.start()

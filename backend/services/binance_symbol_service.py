@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Dict, List, Optional
 
 import requests
@@ -21,11 +22,28 @@ logger = logging.getLogger(__name__)
 
 BINANCE_AVAILABLE_SYMBOLS_KEY = "binance_available_symbols"
 BINANCE_SELECTED_SYMBOLS_KEY = "binance_selected_symbols"
-MAX_WATCHLIST_SYMBOLS = 10
 SYMBOL_REFRESH_TASK_ID = "binance_symbol_refresh"
+
+
+def _watchlist_limit() -> int:
+    raw_value = (
+        os.getenv("BINANCE_MAX_WATCHLIST_SYMBOLS")
+        or os.getenv("MARKET_DATA_MAX_WATCHLIST_SYMBOLS")
+        or "200"
+    )
+    try:
+        return max(1, min(1000, int(raw_value)))
+    except ValueError:
+        return 200
+
+
+MAX_WATCHLIST_SYMBOLS = _watchlist_limit()
 
 DEFAULT_SYMBOLS: List[Dict[str, str]] = [
     {"symbol": "BTC", "name": "Bitcoin"},
+    {"symbol": "ETH", "name": "Ethereum"},
+    {"symbol": "SOL", "name": "Solana"},
+    {"symbol": "BNB", "name": "BNB"},
 ]
 
 BINANCE_FUTURES_API = "https://fapi.binance.com/fapi/v1/exchangeInfo"
@@ -274,6 +292,28 @@ def update_selected_symbols(symbols: List[str]) -> List[str]:
         _save_config_value(db, BINANCE_SELECTED_SYMBOLS_KEY, json.dumps(unique_symbols))
 
     logger.info("[Binance] Watchlist updated: %s", ", ".join(unique_symbols) or "none")
+
+    try:
+        from services.exchanges.binance_collector import binance_collector
+        if binance_collector.running:
+            binance_collector.refresh_symbols(unique_symbols)
+    except Exception as err:
+        logger.warning("[Binance] Unable to refresh REST collector symbols: %s", err)
+
+    try:
+        from services.exchanges.binance_ws_collector import binance_ws_collector
+        if binance_ws_collector.running:
+            binance_ws_collector.refresh_symbols(unique_symbols)
+    except Exception as err:
+        logger.warning("[Binance] Unable to refresh WebSocket collector symbols: %s", err)
+
+    try:
+        from services.exchanges.binance_kline_ws_collector import binance_kline_ws_collector
+        if binance_kline_ws_collector.running:
+            binance_kline_ws_collector.refresh_symbols(unique_symbols)
+    except Exception as err:
+        logger.warning("[Binance] Unable to refresh K-line WebSocket collector symbols: %s", err)
+
     return unique_symbols
 
 

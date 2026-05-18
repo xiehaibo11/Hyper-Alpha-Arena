@@ -10,8 +10,6 @@ import {
   TrendingUp,
   Clock,
   Target,
-  Lock,
-  ExternalLink,
   Info,
   Sparkles,
   Percent,
@@ -19,7 +17,6 @@ import {
 } from 'lucide-react'
 import { toast } from 'react-hot-toast'
 import { useAuth } from '@/contexts/AuthContext'
-import PremiumRequiredModal from '@/components/ui/PremiumRequiredModal'
 
 interface PremiumFeaturesViewProps {
   onAccountUpdated?: () => void
@@ -28,12 +25,11 @@ interface PremiumFeaturesViewProps {
 
 export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: PremiumFeaturesViewProps) {
   const { t } = useTranslation()
-  const { user, membership, membershipLoading } = useAuth()
+  const { user } = useAuth()
 
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [samplingDepth, setSamplingDepth] = useState(10)
-  const [showPremiumModal, setShowPremiumModal] = useState(false)
   const [samplingInterval, setSamplingInterval] = useState(18)
 
   // All supported technical indicators
@@ -46,10 +42,8 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
     { name: 'ATR14', description: 'Average True Range for volatility measurement', category: 'Volatility' },
   ]
 
-  // Determine if user has premium subscription
-  const isPremium = membership?.status === 'ACTIVE'
-  const maxAllowedDepth = isPremium ? 60 : 10
-  const subscriptionEndDate = membership?.currentPeriodEnd
+  // Self-hosted deployment: all advanced capabilities are unlocked locally.
+  const isPremium = true
 
   useEffect(() => {
     fetchGlobalConfig()
@@ -78,10 +72,6 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
     }
   }
 
-  const handleUpgradeClick = () => {
-    window.open('https://www.akooi.com/#pricing-section', '_blank')
-  }
-
   const handlePromptToolClick = () => {
     // Check if user is logged in
     if (!user) {
@@ -100,12 +90,6 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
       if (!user) {
         toast.error('Please log in to save configuration')
         // Could add login redirect logic here
-        return
-      }
-
-      // Check premium requirement - show modal instead of direct redirect
-      if (samplingDepth > 10 && !isPremium) {
-        setShowPremiumModal(true)
         return
       }
 
@@ -143,7 +127,7 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
     }
   }
 
-  if (isLoading || membershipLoading) {
+  if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-muted-foreground">{t('premium.loading', 'Loading premium features...')}</div>
@@ -160,15 +144,13 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
           <div className="flex items-stretch gap-6">
             <div className="space-y-2">
               <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold">{t('premium.title', 'Premium Features')}</h1>
-                {isPremium && subscriptionEndDate && (
-                  <Badge variant="outline" className="text-sm">
-                    {t('premium.activeUntil', 'Active until')} {new Date(subscriptionEndDate).toLocaleDateString()}
-                  </Badge>
-                )}
+                <h1 className="text-3xl font-bold">{t('premium.title', 'Advanced Features')}</h1>
+                <Badge className="bg-green-500 text-white text-sm">
+                  {t('premium.selfHostedUnlocked', 'Self-hosted unlocked')}
+                </Badge>
               </div>
               <p className="text-muted-foreground">
-                {t('premium.subscriptionDesc', 'Continuous development requires financial support. Subscribe to unlock:')}
+                {t('premium.subscriptionDesc', 'Self-hosted deployment has unlocked all advanced features:')}
               </p>
               <div className="flex flex-wrap gap-3 text-sm">
                 <div className="flex items-center gap-2 text-muted-foreground">
@@ -185,27 +167,6 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
                 </div>
               </div>
             </div>
-
-            {/* Subscribe card next to title */}
-            {!isPremium && (
-              <Card className="border text-card-foreground shadow border-orange-500/50 bg-orange-50/5 h-[100px] flex">
-                <CardContent className="p-4 flex flex-col justify-center h-full space-y-3">
-                  <div className="space-y-1">
-                    <p className="font-medium text-sm">{t('premium.premiumRequired', 'Premium subscription required')}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {t('premium.unlockAllFeatures', 'Unlock all features below with a premium subscription')}
-                    </p>
-                  </div>
-                  <Button
-                    onClick={handleUpgradeClick}
-                    className="gap-2 shrink-0 h-8 text-xs self-start w-full"
-                  >
-                    {t('premium.subscribeNow', 'Subscribe Now')}
-                    <ExternalLink className="w-4 h-4" />
-                  </Button>
-                </CardContent>
-              </Card>
-            )}
           </div>
         </div>
       </div>
@@ -262,16 +223,6 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
                       )}
                     </div>
                   </div>
-
-                  {!isPremium && (
-                    <Button
-                      onClick={handleUpgradeClick}
-                      className="w-full h-8 text-xs"
-                    >
-                      {t('premium.subscribeFor50Off', 'Subscribe for 50% Off')}
-                      <ExternalLink className="w-3 h-3 ml-1" />
-                    </Button>
-                  )}
                 </CardContent>
               </Card>
 
@@ -302,9 +253,6 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
                           className="flex-1 h-7 text-xs"
                         >
                           {depth}
-                          {depth > 10 && !isPremium && (
-                            <Lock className="w-3 h-3 ml-1" />
-                          )}
                         </Button>
                       ))}
                     </div>
@@ -560,18 +508,6 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
           </section>
         </div>
       </div>
-
-      {/* Premium Required Modal */}
-      <PremiumRequiredModal
-        isOpen={showPremiumModal}
-        onClose={() => setShowPremiumModal(false)}
-        onSubscribe={() => {
-          setShowPremiumModal(false)
-          handleUpgradeClick()
-        }}
-        featureName={`Sampling Pool Depth (${samplingDepth} points)`}
-        description="Increase sampling depth to provide AI with more historical data for better trend analysis."
-      />
     </div>
   )
 }

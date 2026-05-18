@@ -20,7 +20,7 @@ def migrate():
             CREATE TABLE IF NOT EXISTS user_exchange_config (
                 id SERIAL PRIMARY KEY,
                 user_id INTEGER NOT NULL,
-                selected_exchange VARCHAR(20) NOT NULL DEFAULT 'hyperliquid',
+                selected_exchange VARCHAR(20) NOT NULL DEFAULT 'binance',
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE(user_id)
@@ -36,7 +36,7 @@ def migrate():
         # Insert default config for existing users (user_id=1 as default)
         conn.execute(text("""
             INSERT INTO user_exchange_config (user_id, selected_exchange)
-            VALUES (1, 'hyperliquid')
+            VALUES (1, 'binance')
             ON CONFLICT (user_id) DO NOTHING
         """))
 

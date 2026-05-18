@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { User, LogOut, UserCog, ExternalLink } from 'lucide-react'
+import { User, LogOut, UserCog } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import {
@@ -33,9 +33,9 @@ interface HeaderProps {
 
 export default function Header({ title = 'Hyper Alpha Arena', currentAccount, showAccountSelector = false }: HeaderProps) {
   const { t } = useTranslation()
-  const { user, loading, authEnabled, membership, logout } = useAuth()
+  const { user, loading, authEnabled, logout } = useAuth()
   const currentExchangeInfo = useCurrentExchangeInfo()
-  const isVipMember = membership?.status === 'ACTIVE'
+  const isVipMember = true
 
   // Preload VIP icons so dropdown renders instantly
   useEffect(() => {
@@ -44,21 +44,6 @@ export default function Header({ title = 'Hyper Alpha Arena', currentAccount, sh
       img.src = src
     })
   }, [])
-
-  // Helper function to format membership expiry date
-  const formatExpiryDate = (dateString?: string) => {
-    if (!dateString) return ''
-    try {
-      return new Date(dateString).toLocaleDateString()
-    } catch {
-      return ''
-    }
-  }
-
-  // Helper function to open pricing page
-  const openPricingPage = () => {
-    window.open('https://www.akooi.com/#pricing-section', '_blank')
-  }
 
   const handleSignUp = async () => {
     const signInUrl = await getSignInUrl()
@@ -73,8 +58,8 @@ export default function Header({ title = 'Hyper Alpha Arena', currentAccount, sh
         <div className="flex items-center gap-2 md:gap-3">
           <h1 className="text-base md:text-xl font-bold truncate">{title}</h1>
 
-          {currentExchangeInfo.id === 'hyperliquid' && !isVipMember && (
-            <span className="hidden md:inline text-xs text-muted-foreground ml-2">{t('header.premiumDiscount', 'Subscribe to Premium for service fee 50% off.')}</span>
+          {currentExchangeInfo.id === 'hyperliquid' && (
+            <span className="hidden md:inline text-xs text-muted-foreground ml-2">{t('header.selfHostedUnlocked', 'Self-hosted advanced features unlocked')}</span>
           )}
         </div>
 
@@ -119,25 +104,16 @@ export default function Header({ title = 'Hyper Alpha Arena', currentAccount, sh
                     </DropdownMenuLabel>
                     <DropdownMenuSeparator />
 
-                    {/* Membership Status */}
-                    {membership && membership.status === 'ACTIVE' ? (
-                      <DropdownMenuItem className="cursor-default">
-                        <img src="/static/vip_logo.png" alt="VIP" className="mr-2 h-4 w-4" />
-                        <div className="flex flex-col">
-                          <span className="text-sm font-medium text-yellow-600">{t('header.vipMember', 'VIP Member')}</span>
-                          <span className="text-xs text-muted-foreground">
-                            {membership.planKey === 'yearly' ? t('header.yearlyPlan', 'Yearly Plan') : t('header.monthlyPlan', 'Monthly Plan')}
-                            {membership.currentPeriodEnd && ` • ${t('header.expires', 'Expires')} ${formatExpiryDate(membership.currentPeriodEnd)}`}
-                          </span>
-                        </div>
-                      </DropdownMenuItem>
-                    ) : (
-                      <DropdownMenuItem onClick={openPricingPage}>
-                        <img src="/static/vip_no.png" alt="Upgrade" className="mr-2 h-4 w-4" />
-                        <span>{t('header.upgradeToVip', 'Upgrade to VIP')}</span>
-                        <ExternalLink className="ml-auto h-3 w-3" />
-                      </DropdownMenuItem>
-                    )}
+                    {/* Self-hosted status */}
+                    <DropdownMenuItem className="cursor-default">
+                      <img src="/static/vip_logo.png" alt="Unlocked" className="mr-2 h-4 w-4" />
+                      <div className="flex flex-col">
+                        <span className="text-sm font-medium text-yellow-600">{t('header.vipMember', 'Self-hosted unlocked')}</span>
+                        <span className="text-xs text-muted-foreground">
+                          {t('header.premiumDiscount', 'Service fee is disabled on this self-hosted server.')}
+                        </span>
+                      </div>
+                    </DropdownMenuItem>
 
                     <DropdownMenuSeparator />
                     <DropdownMenuItem onClick={() => window.open('https://account.akooi.com/account', '_blank')}>

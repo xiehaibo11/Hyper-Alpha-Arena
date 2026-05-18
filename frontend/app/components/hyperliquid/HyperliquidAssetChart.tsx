@@ -586,7 +586,7 @@ export default function HyperliquidAssetChart({
   if (loading && data.length === 0) {
     return (
       <Card className="h-full flex items-center justify-center">
-        <div className="text-muted-foreground">Loading Hyperliquid data...</div>
+        <div className="text-muted-foreground">Loading dashboard data...</div>
       </Card>
     )
   }
@@ -603,7 +603,7 @@ export default function HyperliquidAssetChart({
     return (
       <Card className="h-full flex items-center justify-center">
         <div className="text-muted-foreground">
-          No Hyperliquid snapshot data yet.
+          No Binance snapshot data yet.
         </div>
       </Card>
     )

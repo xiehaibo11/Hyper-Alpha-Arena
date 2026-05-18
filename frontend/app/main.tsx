@@ -18,6 +18,8 @@ window.addEventListener('unhandledrejection', (event) => {
 let __WS_SINGLETON__: WebSocket | null = null;
 
 const resolveWsUrl = () => {
+  const configuredUrl = import.meta.env.VITE_WS_URL
+  if (configuredUrl) return configuredUrl
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.host}/ws`
 }
@@ -132,6 +134,8 @@ function App() {
   const [showSplash, setShowSplash] = useState(true)
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [initComplete, setInitComplete] = useState(false)
+  const [needsHyperAiOnboarding, setNeedsHyperAiOnboarding] = useState(false)
+  const [hyperAiConfigChecked, setHyperAiConfigChecked] = useState(false)
   const initStartedRef = useRef(false)
 
   // Check Hyper AI configuration during splash phase
@@ -146,16 +150,38 @@ function App() {
     }
   }, [])
 
+  useEffect(() => {
+    let cancelled = false
+
+    checkHyperAiConfig()
+      .then((needsOnboarding) => {
+        if (!cancelled) {
+          setNeedsHyperAiOnboarding(needsOnboarding)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setHyperAiConfigChecked(true)
+        }
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [checkHyperAiConfig])
+
   // Stable callback for splash completion - does all init checks
   const handleSplashComplete = useCallback(async () => {
     if (initStartedRef.current) return
     initStartedRef.current = true
 
-    const needsOnboarding = await checkHyperAiConfig()
+    const needsOnboarding = hyperAiConfigChecked
+      ? needsHyperAiOnboarding
+      : await checkHyperAiConfig()
     setShowOnboarding(needsOnboarding)
     setInitComplete(true)
     setShowSplash(false)
-  }, [checkHyperAiConfig])
+  }, [checkHyperAiConfig, hyperAiConfigChecked, needsHyperAiOnboarding])
 
   const handleOnboardingComplete = () => {
     setShowOnboarding(false)
@@ -721,12 +747,14 @@ function App() {
     positions_value: 0
   } : null)
 
-  // Data ready when user and account are loaded (or non-paper mode with effectiveOverview)
-  const isDataReady = !!(user && account && (effectiveOverview || tradingMode !== 'paper'))
+  // Hyper AI is the default first screen and does not need the trading WebSocket
+  // bootstrap. Waiting for account data here directly delays the welcome LCP.
+  const isHyperAiFirstScreen = currentPage === 'hyper-ai'
+  const isDataReady = isHyperAiFirstScreen || !!(user && account && (effectiveOverview || tradingMode !== 'paper'))
 
   // Show splash screen first (waits for both animation AND data ready)
   if (showSplash) {
-    return <SplashScreen onComplete={handleSplashComplete} isReady={isDataReady} />
+    return <SplashScreen onComplete={handleSplashComplete} minDuration={700} isReady={isDataReady} />
   }
 
   // Show onboarding if Hyper AI not configured
@@ -752,9 +780,9 @@ function App() {
     return (
       <main className={`flex-1 overflow-hidden flex flex-col min-h-0 min-w-0 ${currentPage === 'hyper-ai' ? '' : 'p-4'}`}>
 
-        {currentPage === 'hyper-ai' && (
+        <div className={currentPage === 'hyper-ai' ? 'flex flex-col flex-1 min-h-0 min-w-0' : 'hidden'}>
           <HyperAiPage />
-        )}
+        </div>
 
         {currentPage === 'comprehensive' && (
           tradingMode === 'paper' ? (

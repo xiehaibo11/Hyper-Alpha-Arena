@@ -131,6 +131,16 @@ class ExchangeDataPersistence:
             if taker_sell_notional is None and kline.close_price:
                 taker_sell_notional = kline.taker_sell_volume * kline.close_price
 
+            trade_count = int(kline.trade_count or 0)
+            taker_buy_count = 0
+            taker_sell_count = 0
+            total_notional = (taker_buy_notional or Decimal("0")) + (taker_sell_notional or Decimal("0"))
+            if trade_count > 0 and total_notional > 0:
+                buy_ratio = (taker_buy_notional or Decimal("0")) / total_notional
+                taker_buy_count = int(round(trade_count * float(buy_ratio)))
+                taker_buy_count = max(0, min(trade_count, taker_buy_count))
+                taker_sell_count = trade_count - taker_buy_count
+
             existing = self.db.query(MarketTradesAggregated).filter(
                 MarketTradesAggregated.exchange == kline.exchange,
                 MarketTradesAggregated.symbol == kline.symbol,
@@ -140,7 +150,8 @@ class ExchangeDataPersistence:
             if existing:
                 existing.taker_buy_volume = kline.taker_buy_volume
                 existing.taker_sell_volume = kline.taker_sell_volume
-                existing.taker_buy_count = kline.trade_count or 0
+                existing.taker_buy_count = taker_buy_count
+                existing.taker_sell_count = taker_sell_count
                 existing.taker_buy_notional = taker_buy_notional or 0
                 existing.taker_sell_notional = taker_sell_notional or 0
                 existing.high_price = kline.high_price
@@ -153,14 +164,74 @@ class ExchangeDataPersistence:
                     timestamp=timestamp_ms,
                     taker_buy_volume=kline.taker_buy_volume,
                     taker_sell_volume=kline.taker_sell_volume,
-                    taker_buy_count=kline.trade_count or 0,
-                    taker_sell_count=0,
+                    taker_buy_count=taker_buy_count,
+                    taker_sell_count=taker_sell_count,
                     taker_buy_notional=taker_buy_notional or 0,
                     taker_sell_notional=taker_sell_notional or 0,
                     high_price=kline.high_price,
                     low_price=kline.low_price,
                 )
                 self.db.add(record)
+                inserted += 1
+
+        self.db.commit()
+        return {"inserted": inserted, "updated": updated}
+
+    def save_taker_volume_points(self, points: List[dict]) -> dict:
+        """
+        Save exchange-provided taker volume aggregates to market_trades_aggregated.
+
+        Expected point fields:
+        - exchange
+        - symbol
+        - timestamp (milliseconds)
+        - taker_buy_notional
+        - taker_sell_notional
+        Optional point fields:
+        - taker_buy_volume
+        - taker_sell_volume
+        """
+        inserted = 0
+        updated = 0
+
+        for point in points:
+            exchange = str(point.get("exchange") or "").lower()
+            symbol = str(point.get("symbol") or "").upper()
+            timestamp = int(point.get("timestamp") or 0)
+            if not exchange or not symbol or timestamp <= 0:
+                continue
+
+            taker_buy_notional = Decimal(str(point.get("taker_buy_notional") or "0"))
+            taker_sell_notional = Decimal(str(point.get("taker_sell_notional") or "0"))
+            taker_buy_volume = Decimal(str(point.get("taker_buy_volume") or "0"))
+            taker_sell_volume = Decimal(str(point.get("taker_sell_volume") or "0"))
+
+            existing = self.db.query(MarketTradesAggregated).filter(
+                MarketTradesAggregated.exchange == exchange,
+                MarketTradesAggregated.symbol == symbol,
+                MarketTradesAggregated.timestamp == timestamp,
+            ).first()
+
+            if existing:
+                existing.taker_buy_volume = taker_buy_volume
+                existing.taker_sell_volume = taker_sell_volume
+                existing.taker_buy_notional = taker_buy_notional
+                existing.taker_sell_notional = taker_sell_notional
+                updated += 1
+            else:
+                self.db.add(
+                    MarketTradesAggregated(
+                        exchange=exchange,
+                        symbol=symbol,
+                        timestamp=timestamp,
+                        taker_buy_volume=taker_buy_volume,
+                        taker_sell_volume=taker_sell_volume,
+                        taker_buy_count=0,
+                        taker_sell_count=0,
+                        taker_buy_notional=taker_buy_notional,
+                        taker_sell_notional=taker_sell_notional,
+                    )
+                )
                 inserted += 1
 
         self.db.commit()

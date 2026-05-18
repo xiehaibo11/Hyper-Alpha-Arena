@@ -12,6 +12,53 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+def _period_from_indicator(indicator: str, prefix: str) -> Optional[int]:
+    suffix = indicator.upper().replace(prefix, "", 1)
+    return int(suffix) if suffix.isdigit() else None
+
+
+def get_indicator_min_kline_count(indicator: str) -> int:
+    """Return the minimum candle count needed before an indicator is meaningful."""
+    indicator = (indicator or "").upper()
+    if indicator.startswith("EMA"):
+        return _period_from_indicator(indicator, "EMA") or 20
+    if indicator.startswith("MA"):
+        return _period_from_indicator(indicator, "MA") or 20
+    if indicator.startswith("RSI"):
+        return (_period_from_indicator(indicator, "RSI") or 14) + 1
+    if indicator.startswith("ATR"):
+        return (_period_from_indicator(indicator, "ATR") or 14) + 1
+    if indicator == "MACD":
+        return 35
+    if indicator == "BOLL":
+        return 20
+    if indicator == "STOCH":
+        return 14
+    if indicator == "OBV":
+        return 2
+    if indicator == "VWAP":
+        return 1
+    return 1
+
+
+def get_required_kline_count(indicators: List[str]) -> int:
+    """Return the maximum warm-up candle count required by an indicator set."""
+    if not indicators:
+        return 1
+    return max(get_indicator_min_kline_count(indicator) for indicator in indicators)
+
+
+def _empty_indicator_result(indicator: str) -> Any:
+    indicator = (indicator or "").upper()
+    if indicator == "MACD":
+        return {"macd": [], "signal": [], "histogram": []}
+    if indicator == "BOLL":
+        return {"upper": [], "middle": [], "lower": []}
+    if indicator == "STOCH":
+        return {"k": [], "d": []}
+    return []
+
+
 def calculate_indicators(kline_data: List[Dict[str, Any]], indicators: List[str]) -> Dict[str, Any]:
     """
     计算技术指标
@@ -29,6 +76,11 @@ def calculate_indicators(kline_data: List[Dict[str, Any]], indicators: List[str]
     try:
         # 转换为DataFrame
         df = pd.DataFrame(kline_data)
+        required_columns = {'open', 'high', 'low', 'close', 'volume'}
+        missing_columns = required_columns.difference(df.columns)
+        if missing_columns:
+            logger.warning("K-line data missing columns for indicators: %s", sorted(missing_columns))
+            return {indicator: _empty_indicator_result(indicator) for indicator in indicators}
 
         # 确保数据类型正确
         df['open'] = pd.to_numeric(df['open'], errors='coerce')
@@ -36,14 +88,27 @@ def calculate_indicators(kline_data: List[Dict[str, Any]], indicators: List[str]
         df['low'] = pd.to_numeric(df['low'], errors='coerce')
         df['close'] = pd.to_numeric(df['close'], errors='coerce')
         df['volume'] = pd.to_numeric(df['volume'], errors='coerce')
+        df = df.dropna(subset=['close'])
 
         # 按时间排序
-        df = df.sort_values('timestamp')
+        if 'timestamp' in df.columns:
+            df = df.sort_values('timestamp')
 
         results = {}
 
         for indicator in indicators:
             try:
+                min_count = get_indicator_min_kline_count(indicator)
+                if len(df) < min_count:
+                    logger.debug(
+                        "Insufficient K-line data for %s calculation: %s < %s",
+                        indicator,
+                        len(df),
+                        min_count,
+                    )
+                    results[indicator] = _empty_indicator_result(indicator)
+                    continue
+
                 if indicator == 'EMA20':
                     results['EMA20'] = _calculate_ema(df, 20)
                 elif indicator == 'EMA50':
@@ -77,7 +142,7 @@ def calculate_indicators(kline_data: List[Dict[str, Any]], indicators: List[str]
 
             except Exception as e:
                 logger.error(f"Error calculating {indicator}: {e}")
-                results[indicator] = None
+                results[indicator] = _empty_indicator_result(indicator)
 
         return results
 
@@ -122,37 +187,43 @@ def _calculate_macd(df: pd.DataFrame) -> Dict[str, List[float]]:
 
 def _calculate_rsi(df: pd.DataFrame, period: int) -> List[float]:
     """计算相对强弱指数"""
+    if len(df) < period + 1:
+        logger.debug("Insufficient K-line data for RSI%s calculation: %s < %s", period, len(df), period + 1)
+        return []
     rsi = ta.rsi(df['close'], length=period)
+    if rsi is None:
+        logger.debug("RSI%s calculation returned None", period)
+        return []
     return rsi.fillna(50).tolist()  # RSI默认值设为50
 
 
 def _calculate_bollinger_bands(df: pd.DataFrame, period: int = 20, std: float = 2) -> Dict[str, List[float]]:
     """计算布林带"""
-    logger.info(f"Starting BOLL calculation with {len(df)} data points, period={period}, std={std}")
+    logger.debug(f"Starting BOLL calculation with {len(df)} data points, period={period}, std={std}")
 
     try:
         # 检查输入数据
         if len(df) < period:
-            logger.error(f"Insufficient data for BOLL calculation: {len(df)} < {period}")
-            return None
+            logger.debug(f"Insufficient data for BOLL calculation: {len(df)} < {period}")
+            return {'upper': [], 'middle': [], 'lower': []}
 
-        logger.info(f"Close price sample: {df['close'].head().tolist()}")
+        logger.debug(f"Close price sample: {df['close'].head().tolist()}")
 
         bb = ta.bbands(df['close'], length=period, std=std)
-        logger.info(f"BOLL calculation completed, result type: {type(bb)}")
+        logger.debug(f"BOLL calculation completed, result type: {type(bb)}")
 
         if bb is None:
-            logger.error("BOLL calculation returned None")
-            return None
+            logger.debug("BOLL calculation returned None")
+            return {'upper': [], 'middle': [], 'lower': []}
 
         if bb.empty:
-            logger.error("BOLL calculation returned empty DataFrame")
-            return None
+            logger.debug("BOLL calculation returned empty DataFrame")
+            return {'upper': [], 'middle': [], 'lower': []}
 
         # 打印列名以调试
-        logger.info(f"BOLL columns: {bb.columns.tolist()}")
-        logger.info(f"BOLL shape: {bb.shape}")
-        logger.info(f"BOLL sample data:\n{bb.head()}")
+        logger.debug(f"BOLL columns: {bb.columns.tolist()}")
+        logger.debug(f"BOLL shape: {bb.shape}")
+        logger.debug(f"BOLL sample data:\n{bb.head()}")
 
         # 尝试不同的列名格式
         upper_col = None
@@ -160,21 +231,21 @@ def _calculate_bollinger_bands(df: pd.DataFrame, period: int = 20, std: float = 
         lower_col = None
 
         for col in bb.columns:
-            logger.info(f"Checking column: {col}")
+            logger.debug(f"Checking column: {col}")
             if 'BBU' in col or 'upper' in col.lower():
                 upper_col = col
-                logger.info(f"Found upper column: {col}")
+                logger.debug(f"Found upper column: {col}")
             elif 'BBM' in col or 'middle' in col.lower():
                 middle_col = col
-                logger.info(f"Found middle column: {col}")
+                logger.debug(f"Found middle column: {col}")
             elif 'BBL' in col or 'lower' in col.lower():
                 lower_col = col
-                logger.info(f"Found lower column: {col}")
+                logger.debug(f"Found lower column: {col}")
 
         if not all([upper_col, middle_col, lower_col]):
             logger.error(f"Could not find all BOLL columns. Found: upper={upper_col}, middle={middle_col}, lower={lower_col}")
             logger.error(f"Available columns: {bb.columns.tolist()}")
-            return None
+            return {'upper': [], 'middle': [], 'lower': []}
 
         result = {
             'upper': bb[upper_col].fillna(0).tolist(),
@@ -182,12 +253,12 @@ def _calculate_bollinger_bands(df: pd.DataFrame, period: int = 20, std: float = 
             'lower': bb[lower_col].fillna(0).tolist()
         }
 
-        logger.info(f"BOLL calculation successful, returning {len(result['upper'])} data points")
+        logger.debug(f"BOLL calculation successful, returning {len(result['upper'])} data points")
         return result
 
     except Exception as e:
         logger.error(f"Error calculating BOLL: {e}", exc_info=True)
-        return None
+        return {'upper': [], 'middle': [], 'lower': []}
 
 
 def _calculate_atr(df: pd.DataFrame, period: int) -> List[float]:
@@ -264,7 +335,9 @@ def calculate_indicator(
     symbol: str,
     indicator: str,
     period: str,
-    current_time_ms: int
+    current_time_ms: int,
+    exchange: str = "binance",
+    environment: str = "mainnet",
 ) -> Optional[Dict[str, Any]]:
     """
     Calculate a single technical indicator for Program Trader.
@@ -275,47 +348,45 @@ def calculate_indicator(
         indicator: Indicator name (e.g., 'RSI14', 'EMA20', 'MACD')
         period: K-line period (e.g., '1h', '4h', '1d')
         current_time_ms: Current timestamp in milliseconds
+        exchange: Preferred exchange for local data; falls back to Binance public K-lines.
+        environment: Market data environment label for persisted K-lines.
 
     Returns:
         Dict with indicator values, or None if calculation fails
     """
-    from database.models import CryptoKline
-    from sqlalchemy import desc
-
     try:
-        # Determine how many candles we need based on indicator
-        count = 100  # Default
-        if 'EMA100' in indicator or 'MA100' in indicator:
-            count = 150
-        elif 'EMA50' in indicator or 'MA50' in indicator:
-            count = 100
+        indicator = indicator.upper()
 
-        # Fetch K-line data from database
-        rows = (
-            db.query(CryptoKline)
-            .filter(CryptoKline.symbol == symbol, CryptoKline.period == period)
-            .order_by(desc(CryptoKline.timestamp))
-            .limit(count)
-            .all()
+        # Determine how many candles we need based on indicator
+        count = max(100, get_indicator_min_kline_count(indicator) + 50)
+        if 'EMA100' in indicator or 'MA100' in indicator:
+            count = 180
+
+        from services.kline_autofill import ensure_indicator_klines
+
+        kline_data, source_exchange, fetched = ensure_indicator_klines(
+            db=db,
+            symbol=symbol,
+            period=period,
+            indicators=[indicator],
+            exchange=exchange,
+            environment=environment,
+            min_count=get_indicator_min_kline_count(indicator),
+            limit=count,
         )
 
-        if not rows:
-            logger.warning(f"No kline data for {symbol} {period}")
+        if not kline_data:
+            logger.warning("No kline data for %s %s after auto-fill", symbol, period)
             return None
-
-        # Convert to list of dicts for calculate_indicators
-        # Note: CryptoKline uses open_price/high_price/etc and timestamp is integer (seconds)
-        kline_data = [
-            {
-                'timestamp': int(row.timestamp),
-                'open': float(row.open_price) if row.open_price else 0.0,
-                'high': float(row.high_price) if row.high_price else 0.0,
-                'low': float(row.low_price) if row.low_price else 0.0,
-                'close': float(row.close_price) if row.close_price else 0.0,
-                'volume': float(row.volume) if row.volume else 0.0,
-            }
-            for row in reversed(rows)
-        ]
+        if fetched:
+            logger.info(
+                "Auto-filled K-line data for %s/%s %s via %s before %s calculation",
+                symbol,
+                period,
+                environment,
+                source_exchange,
+                indicator,
+            )
 
         # Calculate the indicator
         results = calculate_indicators(kline_data, [indicator])
@@ -331,9 +402,11 @@ def calculate_indicator(
                 for k, v in value.items():
                     if isinstance(v, list) and v:
                         latest[k] = v[-1]
+                    elif isinstance(v, list):
+                        latest[k] = None
                     else:
                         latest[k] = v
-                return latest
+                return latest if any(v is not None for v in latest.values()) else None
             return {'value': value}
 
         return None

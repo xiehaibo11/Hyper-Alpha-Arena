@@ -13,6 +13,7 @@ Endpoints:
 - POST /api/hyper-ai/chat - Start chat (returns task_id for polling)
 - GET  /api/hyper-ai/skills - List all skills with enabled status
 - PUT  /api/hyper-ai/skills/{name}/toggle - Enable/disable a skill
+- GET  /api/hyper-ai/auto-dream/status - Inspect autonomous dream scheduler status
 - GET  /api/hyper-ai/tools - List external tools with config status
 - PUT  /api/hyper-ai/tools/{tool_name}/config - Save tool configuration
 - DELETE /api/hyper-ai/tools/{tool_name}/config - Remove tool configuration
@@ -58,11 +59,19 @@ class PreferencesRequest(BaseModel):
     capital_scale: Optional[str] = None
 
 
+class ChatImageAttachment(BaseModel):
+    name: Optional[str] = None
+    mime_type: str
+    data_url: str
+    size: Optional[int] = None
+
+
 class ChatRequest(BaseModel):
     message: str
     conversation_id: Optional[int] = None
     mode: Optional[str] = None  # "onboarding" for profile collection
     lang: Optional[str] = None  # "zh" or "en" for language preference
+    images: Optional[List[ChatImageAttachment]] = None
 
 
 class InsightRequest(BaseModel):
@@ -366,7 +375,13 @@ def start_chat(request: ChatRequest, db: Session = Depends(get_db)):
     if is_onboarding:
         task_id = start_onboarding_chat_task(db, conv.id, request.message, request.lang)
     else:
-        task_id = start_chat_task(db, conv.id, request.message, request.lang)
+        task_id = start_chat_task(
+            db,
+            conv.id,
+            request.message,
+            request.lang,
+            image_attachments=[image.model_dump() for image in (request.images or [])],
+        )
 
     return {
         "task_id": task_id,
@@ -386,6 +401,21 @@ def confirm_tool(request: ConfirmationRequest):
     if not accepted:
         raise HTTPException(status_code=404, detail="No matching pending confirmation")
     return {"success": True}
+
+
+@router.get("/auto-dream/status")
+def get_auto_dream_runtime_status(db: Session = Depends(get_db)):
+    """Inspect Hyper AI Auto Dream scheduler and consolidation status."""
+    from services.hyper_ai_auto_dream_service import AUTO_DREAM_JOB_ID, get_auto_dream_status
+    from services.scheduler import task_scheduler
+
+    jobs = task_scheduler.get_job_info()
+    auto_dream_jobs = [job for job in jobs if job.get("id") == AUTO_DREAM_JOB_ID]
+    return {
+        **get_auto_dream_status(db, include_scan=True),
+        "scheduled": bool(auto_dream_jobs),
+        "scheduler_jobs": auto_dream_jobs,
+    }
 
 
 @router.post("/insight")

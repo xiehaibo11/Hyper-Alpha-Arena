@@ -55,17 +55,29 @@ export default function HyperliquidView({ wsRef, refreshKey = 0, onPageChange }:
   // Load data from APIs
   useEffect(() => {
     const loadData = async () => {
-      try {
-        setLoading(true)
-        const [positions, tradesRes, accountsList] = await Promise.all([
-          getArenaPositions({ trading_mode: tradingMode }),
-          getArenaTrades({ trading_mode: tradingMode, limit: 200 }),
-          getAccounts()
-        ])
-        setPositionsData(positions)
-        setFullAccounts(accountsList)
+      setLoading(true)
+
+      const [positionsResult, tradesResult, accountsResult] = await Promise.allSettled([
+        getArenaPositions({ trading_mode: tradingMode }),
+        getArenaTrades({ trading_mode: tradingMode, limit: 200 }),
+        getAccounts()
+      ])
+
+      if (positionsResult.status === 'fulfilled') {
+        setPositionsData(positionsResult.value)
+      } else {
+        console.error('Failed to load dashboard positions:', positionsResult.reason)
+      }
+
+      if (accountsResult.status === 'fulfilled') {
+        setFullAccounts(accountsResult.value)
+      } else {
+        console.error('Failed to load dashboard accounts:', accountsResult.reason)
+      }
+
+      if (tradesResult.status === 'fulfilled') {
         // Convert trades to TradeMarker format
-        const markers: TradeMarker[] = (tradesRes.trades || []).map((t: ArenaTrade) => ({
+        const markers: TradeMarker[] = (tradesResult.value.trades || []).map((t: ArenaTrade) => ({
           trade_id: t.trade_id,
           trade_time: t.trade_time || '',
           side: t.side,
@@ -75,12 +87,13 @@ export default function HyperliquidView({ wsRef, refreshKey = 0, onPageChange }:
           exchange: t.exchange || 'hyperliquid'
         }))
         setTradeMarkers(markers)
-      } catch (error) {
-        console.error('Failed to load Hyperliquid data:', error)
-      } finally {
-        setChartRefreshKey(prev => prev + 1)
-        setLoading(false)
+      } else {
+        console.error('Failed to load dashboard trades:', tradesResult.reason)
+        setTradeMarkers([])
       }
+
+      setChartRefreshKey(prev => prev + 1)
+      setLoading(false)
     }
 
     loadData()
@@ -129,7 +142,7 @@ export default function HyperliquidView({ wsRef, refreshKey = 0, onPageChange }:
   if (loading && !positionsData) {
     return (
       <div className="flex items-center justify-center h-96">
-        <div className="text-muted-foreground">{t('dashboard.loadingData', 'Loading Hyperliquid data...')}</div>
+        <div className="text-muted-foreground">{t('dashboard.loadingData', 'Loading dashboard data...')}</div>
       </div>
     )
   }
@@ -194,7 +207,7 @@ export default function HyperliquidView({ wsRef, refreshKey = 0, onPageChange }:
                 />
               ) : (
                 <div className="bg-card border border-border rounded-lg h-full flex items-center justify-center">
-                  <div className="text-muted-foreground">{t('dashboard.noAccountConfigured', 'No Hyperliquid account configured')}</div>
+                  <div className="text-muted-foreground">{t('dashboard.noAccountConfigured', 'No Binance API account configured')}</div>
                 </div>
               )}
             </div>

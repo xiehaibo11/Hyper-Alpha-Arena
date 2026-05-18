@@ -850,7 +850,12 @@ market_flow_collector = MarketFlowCollector()
 
 
 # Data retention settings
-DATA_RETENTION_DAYS = 365
+try:
+    from services.market_data_archive import default_market_data_retention_days
+
+    DATA_RETENTION_DAYS = default_market_data_retention_days()
+except Exception:
+    DATA_RETENTION_DAYS = 30
 
 
 def get_retention_days(exchange: str = "hyperliquid") -> int:
@@ -876,7 +881,7 @@ def get_retention_days(exchange: str = "hyperliquid") -> int:
 
 def cleanup_old_market_flow_data():
     """
-    Delete market flow data older than configured retention days.
+    Archive then delete market flow data older than configured retention days.
     Cleans up data for each exchange based on their individual retention settings.
     This function is designed to be called by a scheduled task.
     """
@@ -892,91 +897,141 @@ def cleanup_old_market_flow_data():
     db = SessionLocal()
     try:
         total_deleted = 0
+        archived_rows = 0
+        uploaded_objects = 0
+
+        def archive_first(exchange: str, retention_days: int) -> bool:
+            """Return True when archive flow took responsibility for cleanup."""
+            from services.market_data_archive import (
+                market_data_archive_requires_success,
+                market_data_archive_service,
+            )
+
+            summary = market_data_archive_service.archive_expired_for_exchange(
+                db=db,
+                exchange=exchange,
+                retention_days=retention_days,
+            )
+            if summary.handled_cleanup:
+                nonlocal archived_rows, uploaded_objects
+                archived_rows += summary.archived_rows
+                uploaded_objects += summary.uploaded_objects
+                if summary.deleted_rows:
+                    logger.info(
+                        "Market data archive cleanup: exchange=%s archived=%s deleted=%s objects=%s retention_days=%s",
+                        exchange,
+                        summary.archived_rows,
+                        summary.deleted_rows,
+                        summary.uploaded_objects,
+                        retention_days,
+                    )
+                return True
+
+            if summary.enabled and market_data_archive_requires_success():
+                logger.warning(
+                    "Market data local deletion skipped for %s because archive was not completed: %s",
+                    exchange,
+                    summary.skipped_reason,
+                )
+                return True
+            return False
 
         # Clean up Hyperliquid data
         hl_retention = get_retention_days("hyperliquid")
         hl_cutoff_ms = int((time.time() - hl_retention * 86400) * 1000)
+        if archive_first("hyperliquid", hl_retention):
+            hl_total = 0
+        else:
 
-        hl_trades = (
-            db.query(MarketTradesAggregated)
-            .filter(
-                MarketTradesAggregated.exchange == "hyperliquid",
-                MarketTradesAggregated.timestamp < hl_cutoff_ms
+            hl_trades = (
+                db.query(MarketTradesAggregated)
+                .filter(
+                    MarketTradesAggregated.exchange == "hyperliquid",
+                    MarketTradesAggregated.timestamp < hl_cutoff_ms
+                )
+                .delete(synchronize_session=False)
             )
-            .delete(synchronize_session=False)
-        )
-        hl_orderbook = (
-            db.query(MarketOrderbookSnapshots)
-            .filter(
-                MarketOrderbookSnapshots.exchange == "hyperliquid",
-                MarketOrderbookSnapshots.timestamp < hl_cutoff_ms
+            hl_orderbook = (
+                db.query(MarketOrderbookSnapshots)
+                .filter(
+                    MarketOrderbookSnapshots.exchange == "hyperliquid",
+                    MarketOrderbookSnapshots.timestamp < hl_cutoff_ms
+                )
+                .delete(synchronize_session=False)
             )
-            .delete(synchronize_session=False)
-        )
-        hl_metrics = (
-            db.query(MarketAssetMetrics)
-            .filter(
-                MarketAssetMetrics.exchange == "hyperliquid",
-                MarketAssetMetrics.timestamp < hl_cutoff_ms
+            hl_metrics = (
+                db.query(MarketAssetMetrics)
+                .filter(
+                    MarketAssetMetrics.exchange == "hyperliquid",
+                    MarketAssetMetrics.timestamp < hl_cutoff_ms
+                )
+                .delete(synchronize_session=False)
             )
-            .delete(synchronize_session=False)
-        )
-        hl_total = hl_trades + hl_orderbook + hl_metrics
-        if hl_total > 0:
-            logger.info(
-                f"Hyperliquid cleanup: {hl_trades} trades, {hl_orderbook} orderbook, "
-                f"{hl_metrics} metrics (older than {hl_retention} days)"
-            )
+            hl_total = hl_trades + hl_orderbook + hl_metrics
+            if hl_total > 0:
+                logger.info(
+                    f"Hyperliquid cleanup: {hl_trades} trades, {hl_orderbook} orderbook, "
+                    f"{hl_metrics} metrics (older than {hl_retention} days)"
+                )
         total_deleted += hl_total
 
         # Clean up Binance data
         bn_retention = get_retention_days("binance")
         bn_cutoff_ms = int((time.time() - bn_retention * 86400) * 1000)
+        if archive_first("binance", bn_retention):
+            bn_total = 0
+        else:
 
-        bn_trades = (
-            db.query(MarketTradesAggregated)
-            .filter(
-                MarketTradesAggregated.exchange == "binance",
-                MarketTradesAggregated.timestamp < bn_cutoff_ms
+            bn_trades = (
+                db.query(MarketTradesAggregated)
+                .filter(
+                    MarketTradesAggregated.exchange == "binance",
+                    MarketTradesAggregated.timestamp < bn_cutoff_ms
+                )
+                .delete(synchronize_session=False)
             )
-            .delete(synchronize_session=False)
-        )
-        bn_orderbook = (
-            db.query(MarketOrderbookSnapshots)
-            .filter(
-                MarketOrderbookSnapshots.exchange == "binance",
-                MarketOrderbookSnapshots.timestamp < bn_cutoff_ms
+            bn_orderbook = (
+                db.query(MarketOrderbookSnapshots)
+                .filter(
+                    MarketOrderbookSnapshots.exchange == "binance",
+                    MarketOrderbookSnapshots.timestamp < bn_cutoff_ms
+                )
+                .delete(synchronize_session=False)
             )
-            .delete(synchronize_session=False)
-        )
-        bn_metrics = (
-            db.query(MarketAssetMetrics)
-            .filter(
-                MarketAssetMetrics.exchange == "binance",
-                MarketAssetMetrics.timestamp < bn_cutoff_ms
+            bn_metrics = (
+                db.query(MarketAssetMetrics)
+                .filter(
+                    MarketAssetMetrics.exchange == "binance",
+                    MarketAssetMetrics.timestamp < bn_cutoff_ms
+                )
+                .delete(synchronize_session=False)
             )
-            .delete(synchronize_session=False)
-        )
-        bn_sentiment = (
-            db.query(MarketSentimentMetrics)
-            .filter(
-                MarketSentimentMetrics.exchange == "binance",
-                MarketSentimentMetrics.timestamp < bn_cutoff_ms
+            bn_sentiment = (
+                db.query(MarketSentimentMetrics)
+                .filter(
+                    MarketSentimentMetrics.exchange == "binance",
+                    MarketSentimentMetrics.timestamp < bn_cutoff_ms
+                )
+                .delete(synchronize_session=False)
             )
-            .delete(synchronize_session=False)
-        )
-        bn_total = bn_trades + bn_orderbook + bn_metrics + bn_sentiment
-        if bn_total > 0:
-            logger.info(
-                f"Binance cleanup: {bn_trades} trades, {bn_orderbook} orderbook, "
-                f"{bn_metrics} metrics, {bn_sentiment} sentiment (older than {bn_retention} days)"
-            )
+            bn_total = bn_trades + bn_orderbook + bn_metrics + bn_sentiment
+            if bn_total > 0:
+                logger.info(
+                    f"Binance cleanup: {bn_trades} trades, {bn_orderbook} orderbook, "
+                    f"{bn_metrics} metrics, {bn_sentiment} sentiment (older than {bn_retention} days)"
+                )
         total_deleted += bn_total
 
         db.commit()
 
-        if total_deleted == 0:
+        if total_deleted == 0 and archived_rows == 0:
             logger.debug("Market flow data cleanup: no old records to delete")
+        elif archived_rows:
+            logger.info(
+                "Market data archive cycle completed: archived_rows=%s uploaded_objects=%s",
+                archived_rows,
+                uploaded_objects,
+            )
 
     except Exception as e:
         db.rollback()

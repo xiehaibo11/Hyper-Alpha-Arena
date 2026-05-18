@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Dict, List, Optional
 
 import requests
@@ -24,11 +25,28 @@ logger = logging.getLogger(__name__)
 
 AVAILABLE_SYMBOLS_KEY = "hyperliquid_available_symbols"
 SELECTED_SYMBOLS_KEY = "hyperliquid_selected_symbols"
-MAX_WATCHLIST_SYMBOLS = 10
 SYMBOL_REFRESH_TASK_ID = "hyperliquid_symbol_refresh"
+
+
+def _watchlist_limit() -> int:
+    raw_value = (
+        os.getenv("HYPERLIQUID_MAX_WATCHLIST_SYMBOLS")
+        or os.getenv("MARKET_DATA_MAX_WATCHLIST_SYMBOLS")
+        or "100"
+    )
+    try:
+        return max(1, min(1000, int(raw_value)))
+    except ValueError:
+        return 100
+
+
+MAX_WATCHLIST_SYMBOLS = _watchlist_limit()
 
 DEFAULT_SYMBOLS: List[Dict[str, str]] = [
     {"symbol": "BTC", "name": "Bitcoin"},
+    {"symbol": "ETH", "name": "Ethereum"},
+    {"symbol": "SOL", "name": "Solana"},
+    {"symbol": "BNB", "name": "BNB"},
 ]
 
 META_ENDPOINTS = {

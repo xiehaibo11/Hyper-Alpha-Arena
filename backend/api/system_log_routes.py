@@ -28,7 +28,9 @@ async def get_system_logs(
     - logs: 日志列表
     - total: 返回的日志数量
     """
-    min_level = None if level else "WARNING"
+    # Keep the default all-log view focused on actionable warnings/errors, but
+    # category-specific views such as price_update must include INFO snapshots.
+    min_level = None if level or category else "WARNING"
     logs = system_logger.get_logs(
         level=level,
         category=category,
@@ -78,7 +80,7 @@ async def get_log_stats() -> Dict[str, Any]:
     - by_level: 按级别分组的统计
     - by_category: 按分类分组的统计
     """
-    all_logs = system_logger.get_logs(limit=500, min_level="WARNING")
+    all_logs = system_logger.get_logs(limit=500)
 
     stats = {
         "total_logs": len(all_logs),

@@ -17,12 +17,14 @@ class SymbolMapper:
 
     Internal format: "BTC", "ETH" (base currency only)
     Binance format: "BTCUSDT", "ETHUSDT" (with quote currency suffix)
+    OKX format: "BTC-USDT-SWAP", "ETH-USDT-SWAP" for USDT perpetual swaps
     Hyperliquid format: "BTC", "ETH" for standard perps, "xyz:GOLD" for HIP-3
     """
 
     # Quote currency for each exchange's perpetual contracts
     EXCHANGE_QUOTE_CURRENCY = {
         "binance": "USDT",
+        "okx": "USDT-SWAP",
         "hyperliquid": "",  # Hyperliquid uses base currency only
     }
 
@@ -33,6 +35,10 @@ class SymbolMapper:
             "BTC": "BTCUSDT",
             "ETH": "ETHUSDT",
             # Add special cases here if needed
+        },
+        "okx": {
+            "BTC": "BTC-USDT-SWAP",
+            "ETH": "ETH-USDT-SWAP",
         }
     }
 
@@ -41,7 +47,11 @@ class SymbolMapper:
             # exchange -> internal
             "BTCUSDT": "BTC",
             "ETHUSDT": "ETH",
-        }
+        },
+        "okx": {
+            "BTC-USDT-SWAP": "BTC",
+            "ETH-USDT-SWAP": "ETH",
+        },
     }
 
     _hip3_mappings: Dict[str, str] = {}
@@ -85,13 +95,29 @@ class SymbolMapper:
                 return cls._hip3_mappings[upper]
             return symbol
 
+        symbol = str(symbol or "").upper()
+
+        if exchange == "okx":
+            if symbol.endswith("-USDT-SWAP"):
+                return symbol
+            if symbol.endswith("USDT-SWAP") and "-" not in symbol:
+                return f"{symbol[:-9]}-USDT-SWAP"
+            if symbol.endswith("-USDT"):
+                return f"{symbol}-SWAP"
+            if symbol.endswith("USDT") and "-" not in symbol:
+                return f"{symbol[:-4]}-USDT-SWAP"
+            return f"{symbol}-USDT-SWAP"
+
+        quote = cls.EXCHANGE_QUOTE_CURRENCY.get(exchange, "")
+        if quote and symbol.endswith(quote):
+            return symbol
+
         # Check special mappings first
         special = cls.SPECIAL_MAPPINGS.get(exchange, {})
         if symbol in special:
             return special[symbol]
 
         # Default conversion: append quote currency
-        quote = cls.EXCHANGE_QUOTE_CURRENCY.get(exchange, "")
         if quote:
             return f"{symbol}{quote}"
 
@@ -115,6 +141,17 @@ class SymbolMapper:
             symbol_str = str(symbol or "")
             if symbol_str.lower().startswith("xyz:"):
                 return symbol_str.split(":", 1)[1].upper()
+            return symbol
+
+        if exchange == "okx":
+            symbol = str(symbol or "").upper()
+            reverse = cls.REVERSE_MAPPINGS.get(exchange, {})
+            if symbol in reverse:
+                return reverse[symbol]
+            if symbol.endswith("-USDT-SWAP"):
+                return symbol[:-10]
+            if symbol.endswith("-USDT"):
+                return symbol[:-5]
             return symbol
 
         # Check reverse mappings first

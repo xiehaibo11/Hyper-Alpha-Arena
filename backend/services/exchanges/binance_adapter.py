@@ -21,6 +21,7 @@ from .base_adapter import (
     UnifiedSentiment,
 )
 from .symbol_mapper import SymbolMapper
+from .binance_rate_limiter import binance_rest_rate_limiter
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,16 @@ class BinanceAdapter(BaseExchangeAdapter):
         """Make HTTP request to Binance API."""
         url = f"{self.base_url}{endpoint}"
         try:
+            binance_rest_rate_limiter.acquire()
             response = self.session.get(url, params=params, timeout=10)
+            if response.status_code in {418, 429}:
+                retry_after = response.headers.get("Retry-After")
+                logger.warning(
+                    "Binance rate limit response %s for %s, retry_after=%s",
+                    response.status_code,
+                    endpoint,
+                    retry_after,
+                )
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:

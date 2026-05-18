@@ -46,6 +46,43 @@ def _log_insufficient_data_once(key: str, message: str) -> None:
         _insufficient_data_warning_at[key] = now
     logger.warning(message)
 
+
+def _latest_oi_context(records: List[Any], period: str, reason: str, mode: str = "oi") -> Dict[str, Any]:
+    """Return the latest OI snapshot when period-to-period change is unavailable."""
+    latest = records[-1] if records else None
+    if not latest:
+        return {
+            "current": None,
+            "last_5": [],
+            "period": period,
+            "status": "missing",
+            "reason": reason,
+        }
+
+    values = list(latest)
+    latest_oi = decimal_to_float(values[1]) if len(values) > 1 else None
+    mark_price = decimal_to_float(values[2]) if len(values) > 2 else None
+    latest_oi_usd = latest_oi * mark_price if latest_oi is not None and mark_price is not None else None
+    current = None
+    first_values = list(records[0]) if records else []
+    first_oi = decimal_to_float(first_values[1]) if len(first_values) > 1 else None
+    if latest_oi is not None and first_oi not in (None, 0):
+        if mode == "oi_delta":
+            current = ((latest_oi - first_oi) / first_oi) * 100
+        elif mark_price is not None:
+            current = (latest_oi - first_oi) * mark_price
+
+    return {
+        "current": current,
+        "last_5": [current] if current is not None else [],
+        "period": period,
+        "status": "partial",
+        "reason": reason,
+        "absolute_current": latest_oi,
+        "absolute_current_usd": latest_oi_usd,
+        "mark_price": mark_price,
+    }
+
 # Timeframe to milliseconds mapping
 TIMEFRAME_MS = {
     "1m": 60 * 1000,
@@ -56,9 +93,13 @@ TIMEFRAME_MS = {
     "1h": 60 * 60 * 1000,
     "2h": 2 * 60 * 60 * 1000,
     "4h": 4 * 60 * 60 * 1000,
+    "6h": 6 * 60 * 60 * 1000,
     "8h": 8 * 60 * 60 * 1000,
     "12h": 12 * 60 * 60 * 1000,
     "1d": 24 * 60 * 60 * 1000,
+    "3d": 3 * 24 * 60 * 60 * 1000,
+    "1w": 7 * 24 * 60 * 60 * 1000,
+    "1M": 30 * 24 * 60 * 60 * 1000,
 }
 
 
@@ -432,7 +473,10 @@ def _get_oi_data(
     ).order_by(MarketAssetMetrics.timestamp).all()
 
     if not records:
-        logger.warning(f"OI insufficient data: symbol={symbol}, period={period}, records_found=0")
+        _log_insufficient_data_once(
+            f"oi:{exchange.lower()}:{symbol.upper()}:{period}:records",
+            f"OI insufficient data: symbol={symbol}, period={period}, records_found=0",
+        )
         return None
 
     # Aggregate by period - take last value in each bucket
@@ -443,8 +487,12 @@ def _get_oi_data(
 
     sorted_times = sorted(buckets.keys())
     if len(sorted_times) < 2:
-        logger.warning(f"OI insufficient data: symbol={symbol}, buckets={len(sorted_times)}, need_min=2")
-        return None
+        return _latest_oi_context(
+            records,
+            period,
+            f"not_enough_period_buckets:{len(sorted_times)}",
+            mode="oi",
+        )
 
     # Calculate OI USD changes: (current_OI - previous_OI) × mark_price
     oi_changes = []
@@ -459,16 +507,18 @@ def _get_oi_data(
             oi_changes.append(round(change_usd, 2))
 
     if not oi_changes:
-        _log_insufficient_data_once(
-            f"oi:{exchange.lower()}:{symbol.upper()}:{period}:valid_changes",
-            f"OI insufficient data: symbol={symbol}, valid_changes=0",
+        return _latest_oi_context(
+            records,
+            period,
+            "no_valid_period_changes",
+            mode="oi",
         )
-        return None
 
     return {
         "current": oi_changes[-1],
         "last_5": oi_changes[-5:] if len(oi_changes) >= 5 else oi_changes,
-        "period": period
+        "period": period,
+        "status": "ok",
     }
 
 
@@ -512,12 +562,12 @@ def _get_oi_delta_data(
 
     sorted_times = sorted(buckets.keys())
     if len(sorted_times) < 2:
-        _log_insufficient_data_once(
-            f"oi_delta:{exchange.lower()}:{symbol.upper()}:{period}:buckets",
-            f"OI_DELTA insufficient data: symbol={symbol}, period={period}, "
-            f"records_found={len(records)}, buckets={len(sorted_times)}, need_min=2"
+        return _latest_oi_context(
+            records,
+            period,
+            f"not_enough_period_buckets:{len(sorted_times)}",
+            mode="oi_delta",
         )
-        return None
 
     # Calculate OI changes
     oi_values = [decimal_to_float(buckets[ts]) for ts in sorted_times]
@@ -528,12 +578,12 @@ def _get_oi_delta_data(
             oi_changes.append(change_pct)
 
     if not oi_changes:
-        _log_insufficient_data_once(
-            f"oi_delta:{exchange.lower()}:{symbol.upper()}:{period}:valid_changes",
-            f"OI_DELTA insufficient data: symbol={symbol}, period={period}, "
-            f"records_found={len(records)}, buckets={len(sorted_times)}, valid_changes=0"
+        return _latest_oi_context(
+            records,
+            period,
+            "no_valid_period_changes",
+            mode="oi_delta",
         )
-        return None
 
     current_change = oi_changes[-1]
     last_5 = oi_changes[-5:] if len(oi_changes) >= 5 else oi_changes
@@ -541,7 +591,8 @@ def _get_oi_delta_data(
     return {
         "current": current_change,
         "last_5": last_5,
-        "period": period
+        "period": period,
+        "status": "ok",
     }
 
 

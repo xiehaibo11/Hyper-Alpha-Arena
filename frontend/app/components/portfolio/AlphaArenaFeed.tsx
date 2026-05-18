@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useRef, useCallback } from 'react'
+import { useEffect, useMemo, useState, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import {
@@ -21,64 +21,30 @@ import {
 import { useArenaData } from '@/contexts/ArenaDataContext'
 import { useTradingMode } from '@/contexts/TradingModeContext'
 import { Button } from '@/components/ui/button'
-import { CoinIcon } from '@/components/ui/coin-icon'
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { getModelLogo, getProgramIconColors } from './logoAssets'
+import { getModelLogo } from './logoAssets'
 import FlipNumber from './FlipNumber'
 import HighlightWrapper from './HighlightWrapper'
 import { formatDateTime } from '@/lib/dateTime'
-import { Loader2, Settings, ChevronDown, ChevronRight, RefreshCw } from 'lucide-react'
+import { Loader2, Settings, RefreshCw } from 'lucide-react'
 import { copyToClipboard } from '@/lib/utils'
-import { Switch } from '@/components/ui/switch'
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { TradingAccount, updateDashboardVisibility } from '@/lib/api'
-
-interface AlphaArenaFeedProps {
-  refreshKey?: number
-  autoRefreshInterval?: number
-  wsRef?: React.MutableRefObject<WebSocket | null>
-  selectedAccount?: number | 'all'
-  onSelectedAccountChange?: (accountId: number | 'all') => void
-  walletAddress?: string
-  onPageChange?: (page: string) => void
-  onSelectedSymbolChange?: (symbol: string | null) => void
-  onSelectedExchangeChange?: (exchange: 'all' | 'hyperliquid' | 'binance') => void
-  onArenaActivity?: (activity: {
-    accountId: number
-    exchange: string
-    state: 'program_running' | 'ai_thinking'
-  }) => void
-}
-
-type FeedTab = 'trades' | 'model-chat' | 'positions' | 'program'
-
-const DEFAULT_LIMIT = 100
-const MODEL_CHAT_LIMIT = 60
-const PROGRAM_LOG_LIMIT = 50
-
-type CacheKey = string
+import AlphaArenaFeedFilterBar from './AlphaArenaFeedFilterBar'
+import AlphaArenaPnlControls from './AlphaArenaPnlControls'
+import AlphaArenaPositionsTab from './AlphaArenaPositionsTab'
+import AlphaArenaProgramTab from './AlphaArenaProgramTab'
+import AlphaArenaTradeCard from './AlphaArenaTradeCard'
+import DashboardVisibilityDialog from './DashboardVisibilityDialog'
+import {
+  DEFAULT_LIMIT,
+  MODEL_CHAT_LIMIT,
+  PROGRAM_LOG_LIMIT,
+  type AlphaArenaFeedProps,
+  type CacheKey,
+  type FeedTab,
+} from './AlphaArenaFeedTypes'
 
 // Use formatDateTime from @/lib/dateTime with 'short' style for compact display
 const formatDate = (value?: string | null) => formatDateTime(value, { style: 'short' })
-
-function formatPercent(value?: number | null) {
-  if (value === undefined || value === null) return '—'
-  return `${(value * 100).toFixed(2)}%`
-}
-
-function renderSymbolBadge(symbol?: string, size: 'sm' | 'md' = 'md') {
-  if (!symbol) return null
-  const pixelSize = size === 'sm' ? 16 : 20
-  return <CoinIcon symbol={symbol} size={pixelSize} />
-}
-
 
 export default function AlphaArenaFeed({
   refreshKey,
@@ -1120,79 +1086,20 @@ export default function AlphaArenaFeed({
 
   // Render feed filter bar (shared between ModelChat and Program tabs)
   const renderFeedFilterBar = () => (
-    <div className="flex flex-col gap-2 pb-2 mb-2 border-b border-border">
-      <div className="flex items-center gap-1.5 flex-wrap">
-        {/* Time range buttons */}
-        {(['3d', '7d', 'custom'] as const).map(range => (
-          <button
-            key={range}
-            onClick={() => handleTimeRangeChange(range)}
-            className={`h-6 px-2 text-[10px] font-medium rounded border transition-colors ${
-              feedTimeRange === range
-                ? 'bg-foreground text-background border-foreground'
-                : 'bg-background border-border text-muted-foreground hover:text-foreground hover:border-foreground/50'
-            }`}
-          >
-            {range === '3d' ? t('feed.filterDays3', '3D') :
-             range === '7d' ? t('feed.filterDays7', '7D') :
-             t('feed.filterCustom', 'Custom')}
-          </button>
-        ))}
-
-        {/* Separator */}
-        <div className="w-px h-4 bg-border mx-0.5" />
-
-        {/* Action filter */}
-        <select
-          value={feedAction}
-          onChange={e => setFeedAction(e.target.value)}
-          className="h-6 rounded border border-border bg-background px-1.5 text-[10px] font-medium text-foreground uppercase"
-        >
-          <option value="">{t('feed.filterAllActions', 'All Actions')}</option>
-          <option value="buy">BUY</option>
-          <option value="sell">SELL</option>
-          <option value="hold">HOLD</option>
-          <option value="close">CLOSE</option>
-        </select>
-
-        {/* Clear button */}
-        {isFeedFiltered && (
-          <button
-            onClick={clearFeedFilters}
-            className="h-6 px-2 text-[10px] font-medium rounded border border-border text-muted-foreground hover:text-foreground hover:border-foreground/50 transition-colors"
-          >
-            {t('feed.filterClearAll', 'Clear')}
-          </button>
-        )}
-      </div>
-
-      {/* Custom date picker row */}
-      {showCustomDatePicker && (
-        <div className="flex items-center gap-1.5 flex-wrap">
-          <span className="text-[10px] text-muted-foreground">{t('feed.filterFrom', 'From')}</span>
-          <input
-            type="datetime-local"
-            value={feedCustomFrom}
-            onChange={e => setFeedCustomFrom(e.target.value)}
-            className="h-6 rounded border border-border bg-background px-1.5 text-[10px] text-foreground"
-          />
-          <span className="text-[10px] text-muted-foreground">{t('feed.filterTo', 'To')}</span>
-          <input
-            type="datetime-local"
-            value={feedCustomTo}
-            onChange={e => setFeedCustomTo(e.target.value)}
-            className="h-6 rounded border border-border bg-background px-1.5 text-[10px] text-foreground"
-          />
-        </div>
-      )}
-
-      {/* Auto-refresh paused notice */}
-      {isFeedFiltered && (
-        <div className="text-[9px] text-amber-500/80">
-          {t('feed.filterAutoRefreshPaused', 'Auto-refresh paused while filter is active')}
-        </div>
-      )}
-    </div>
+    <AlphaArenaFeedFilterBar
+      t={t}
+      feedTimeRange={feedTimeRange}
+      feedAction={feedAction}
+      feedCustomFrom={feedCustomFrom}
+      feedCustomTo={feedCustomTo}
+      showCustomDatePicker={showCustomDatePicker}
+      isFeedFiltered={isFeedFiltered}
+      onTimeRangeChange={handleTimeRangeChange}
+      onActionChange={setFeedAction}
+      onCustomFromChange={setFeedCustomFrom}
+      onCustomToChange={setFeedCustomTo}
+      onClear={clearFeedFilters}
+    />
   )
 
   return (
@@ -1248,52 +1155,17 @@ export default function AlphaArenaFeed({
         </div>
       </div>
 
-      {/* Dashboard Visibility Config Dialog */}
-      <Dialog open={showVisibilityConfig} onOpenChange={setShowVisibilityConfig}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t('feed.dashboardVisibility', 'Dashboard Visibility')}</DialogTitle>
-            <DialogDescription>
-              {t('feed.dashboardVisibilityDesc', 'Choose which AI Traders to show on the Dashboard.')}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3 max-h-[300px] overflow-y-auto py-2">
-            {loadingVisibilityAccounts ? (
-              <div className="flex items-center justify-center py-8">
-                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-              </div>
-            ) : visibilityAccounts.length === 0 ? (
-              <div className="text-center text-muted-foreground py-4">
-                {t('feed.noAccountsFound', 'No AI Traders found')}
-              </div>
-            ) : (
-              visibilityAccounts.map(account => (
-                <div key={account.id} className="flex items-center justify-between px-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-sm">{account.name}</span>
-                    {account.model && (
-                      <span className="text-xs text-muted-foreground">({account.model})</span>
-                    )}
-                  </div>
-                  <Switch
-                    checked={getAccountVisibility(account)}
-                    onCheckedChange={(checked) => handleVisibilityToggle(account.id, checked)}
-                  />
-                </div>
-              ))
-            )}
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowVisibilityConfig(false)}>
-              {t('common.cancel', 'Cancel')}
-            </Button>
-            <Button onClick={handleSaveVisibility} disabled={savingVisibility}>
-              {savingVisibility ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              {t('common.save', 'Save')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <DashboardVisibilityDialog
+        open={showVisibilityConfig}
+        onOpenChange={setShowVisibilityConfig}
+        accounts={visibilityAccounts}
+        loading={loadingVisibilityAccounts}
+        saving={savingVisibility}
+        t={t}
+        getAccountVisibility={getAccountVisibility}
+        onVisibilityToggle={handleVisibilityToggle}
+        onSave={handleSaveVisibility}
+      />
 
       <Tabs
         value={activeTab}
@@ -1325,72 +1197,17 @@ export default function AlphaArenaFeed({
           {!error && (
             <>
               <TabsContent value="trades" className="flex-1 h-0 overflow-y-auto mt-0 p-4 space-y-4">
-                {/* Action Buttons */}
-                <div className="flex items-center justify-between gap-2 pb-2 border-b border-border">
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => {
-                        if (onPageChange) {
-                          onPageChange('attribution')
-                          window.location.hash = 'attribution'
-                        }
-                      }}
-                      className="text-xs"
-                    >
-                      {t('feed.attributionAnalysis', 'Attribution Analysis')}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setShowPnlConfirm(true)}
-                      disabled={updatingPnl}
-                      className="text-xs"
-                    >
-                      {updatingPnl ? (
-                        <>
-                          <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                          {t('feed.updatingPnl', 'Updating...')}
-                        </>
-                      ) : (
-                        t('feed.updatePnl', 'Update PnL Data')
-                      )}
-                    </Button>
-                  </div>
-                  {pnlUpdateResult && (
-                    <span className="text-xs text-muted-foreground">{pnlUpdateResult}</span>
-                  )}
-                </div>
-
-                {needsSync && (
-                  <div className="flex items-center gap-3 rounded-lg border border-orange-500/60 bg-orange-500/15 p-3">
-                    <RefreshCw className="h-4 w-4 flex-shrink-0 text-orange-600 dark:text-orange-400" />
-                    <p className="flex-1 text-sm text-orange-700 dark:text-orange-300">
-                      {t('attribution.syncWarning', { count: unsyncCount })}
-                    </p>
-                  </div>
-                )}
-
-                {/* PnL Update Confirmation Dialog */}
-                <Dialog open={showPnlConfirm} onOpenChange={setShowPnlConfirm}>
-                  <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                      <DialogTitle>{t('feed.confirmUpdatePnl', 'Confirm Update PnL Data')}</DialogTitle>
-                      <DialogDescription>
-                        {t('feed.confirmUpdatePnlDesc', 'This will fetch the latest fee and PnL data from Hyperliquid API, consuming 2 API calls (testnet + mainnet). Continue?')}
-                      </DialogDescription>
-                    </DialogHeader>
-                    <DialogFooter className="gap-2 sm:gap-0">
-                      <Button variant="outline" onClick={() => setShowPnlConfirm(false)}>
-                        {t('common.cancel', 'Cancel')}
-                      </Button>
-                      <Button onClick={() => { setShowPnlConfirm(false); handleUpdatePnl(); }}>
-                        {t('common.confirm', 'Confirm')}
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
+                <AlphaArenaPnlControls
+                  t={t}
+                  updatingPnl={updatingPnl}
+                  pnlUpdateResult={pnlUpdateResult}
+                  needsSync={needsSync}
+                  unsyncCount={unsyncCount}
+                  showPnlConfirm={showPnlConfirm}
+                  onShowPnlConfirmChange={setShowPnlConfirm}
+                  onConfirmUpdate={handleUpdatePnl}
+                  onPageChange={onPageChange}
+                />
 
                 {loadingTrades && filteredTrades.length === 0 ? (
                   <div className="text-xs text-muted-foreground">{t('feed.loadingTrades', 'Loading trades...')}</div>
@@ -1398,142 +1215,11 @@ export default function AlphaArenaFeed({
                   <div className="text-xs text-muted-foreground">{t('feed.noTrades', 'No recent trades found.')}</div>
                 ) : (
                   filteredTrades.map((trade) => {
-                    const modelLogo = getModelLogo(trade.account_name || trade.model)
                     const isNew = !seenTradeIds.current.has(trade.trade_id)
                     if (!seenTradeIds.current.has(trade.trade_id)) {
                       seenTradeIds.current.add(trade.trade_id)
                     }
-                    return (
-                      <HighlightWrapper key={`${trade.trade_id}-${trade.trade_time}`} isNew={isNew}>
-                        <div className="border border-border bg-muted/40 rounded px-4 py-3 space-y-2">
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            {modelLogo && (
-                              <img
-                                src={modelLogo.src}
-                                alt={modelLogo.alt}
-                                className="h-5 w-5 rounded-full object-contain bg-background"
-                                loading="lazy"
-                              />
-                            )}
-                            <span className="font-semibold text-foreground">{trade.account_name}</span>
-                          </div>
-                          <span>{formatDate(trade.trade_time)}</span>
-                        </div>
-                        <div className="text-sm text-foreground flex flex-wrap items-center gap-2">
-                          {trade.decision_source_type === 'program' ? (
-                            <>
-                              <svg className="h-4 w-4" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-                                <path d="M508.416 3.584c-260.096 0-243.712 112.64-243.712 112.64l0.512 116.736h248.32v34.816H166.4S0 248.832 0 510.976s145.408 252.928 145.408 252.928h86.528v-121.856S227.328 496.64 374.784 496.64h246.272s138.24 2.048 138.24-133.632V139.776c-0.512 0 20.48-136.192-250.88-136.192zM371.712 82.432c24.576 0 44.544 19.968 44.544 44.544 0 24.576-19.968 44.544-44.544 44.544-24.576 0-44.544-19.968-44.544-44.544-0.512-24.576 19.456-44.544 44.544-44.544z" fill="#E74C3C"></path>
-                                <path d="M515.584 1022.464c260.096 0 243.712-112.64 243.712-112.64l-0.512-116.736H510.976V757.76h346.624s166.4 18.944 166.4-243.2-145.408-252.928-145.408-252.928h-86.528v121.856s4.608 145.408-142.848 145.408h-245.76s-138.24-2.048-138.24 133.632v224.768c0-0.512-20.992 135.168 250.368 135.168z m136.704-78.336c-24.576 0-44.544-19.968-44.544-44.544 0-24.576 19.968-44.544 44.544-44.544 24.576 0 44.544 19.968 44.544 44.544 0.512 24.576-19.456 44.544-44.544 44.544z" fill="#F39C12"></path>
-                              </svg>
-                              <span className="font-semibold">{trade.prompt_template_name}</span>
-                            </>
-                          ) : (
-                            <span className="font-semibold">{trade.account_name}</span>
-                          )}
-                          <span>{t('feed.completedA', 'completed a')}</span>
-                          <span className={`px-2 py-1 rounded text-xs font-bold ${
-                            trade.side === 'BUY'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : trade.side === 'SELL'
-                              ? 'bg-red-100 text-red-800'
-                              : trade.side === 'CLOSE'
-                              ? 'bg-blue-100 text-blue-800'
-                              : trade.side === 'HOLD'
-                              ? 'bg-gray-200 text-gray-800'
-                              : 'bg-orange-100 text-orange-800'
-                          }`}>
-                            {trade.side}
-                          </span>
-                          <span>{t('feed.tradeOn', 'trade on')}</span>
-                          <span className="font-semibold">{trade.symbol}</span>
-                          <span>!</span>
-                        </div>
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs text-muted-foreground">
-                          <div>
-                            <span className="block text-[10px] uppercase tracking-wide">{t('feed.price', 'Price')}</span>
-                            <span className="font-medium text-foreground">
-                              <FlipNumber value={trade.price} prefix="$" decimals={2} />
-                            </span>
-                          </div>
-                          <div>
-                            <span className="block text-[10px] uppercase tracking-wide">{t('feed.quantity', 'Quantity')}</span>
-                            <span className="font-medium text-foreground">
-                              <FlipNumber value={trade.quantity} decimals={4} />
-                            </span>
-                          </div>
-                          <div>
-                            <span className="block text-[10px] uppercase tracking-wide">{t('feed.notional', 'Notional')}</span>
-                            <span className="font-medium text-foreground">
-                              <FlipNumber value={trade.notional} prefix="$" decimals={2} />
-                            </span>
-                          </div>
-                          <div>
-                            <span className="block text-[10px] uppercase tracking-wide">{t('feed.commission', 'Commission')}</span>
-                            <span className="font-medium text-foreground">
-                              <FlipNumber value={trade.commission} prefix="$" decimals={2} />
-                            </span>
-                          </div>
-                        </div>
-                        {(trade.signal_trigger_id || trade.prompt_template_name) && (
-                          <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground pt-1 border-t border-border/50">
-                            <div className="flex items-center gap-2">
-                              <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                                trade.signal_trigger_id
-                                  ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                                  : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                              }`}>
-                                {trade.signal_trigger_id
-                                  ? t('feed.signalPoolTrigger', 'Signal Pool')
-                                  : t('feed.scheduledTrigger', 'Scheduled')}
-                              </span>
-                              {trade.prompt_template_name && trade.decision_source_type !== 'program' && (
-                                <span className="px-2 py-0.5 rounded font-medium bg-muted text-foreground">
-                                  {trade.prompt_template_name}
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-slate-800/80">
-                              <img
-                                src={trade.exchange === 'binance' ? '/static/binance_logo.svg' : '/static/hyperliquid_logo.svg'}
-                                alt={trade.exchange === 'binance' ? 'Binance' : 'Hyperliquid'}
-                                className="h-3.5 w-3.5"
-                              />
-                              <span className="text-[10px] font-medium text-slate-200">
-                                {trade.exchange === 'binance' ? 'Binance' : 'Hyperliquid'}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                        {trade.related_orders && trade.related_orders.length > 0 && (
-                          <div className="mt-2 pt-2 border-t border-border/50 space-y-1">
-                            <div className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                              {t('feed.relatedOrders', 'Related Orders')}
-                            </div>
-                            {trade.related_orders.map((ro, idx) => (
-                              <div key={idx} className="flex items-center gap-2 text-xs bg-muted/30 rounded px-2 py-1">
-                                <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                                  ro.type === 'sl'
-                                    ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                                }`}>
-                                  {ro.type === 'sl' ? t('feed.stopLoss', 'SL') : t('feed.takeProfit', 'TP')}
-                                </span>
-                                <span className="text-muted-foreground">@</span>
-                                <span className="font-medium">${ro.price.toFixed(2)}</span>
-                                <span className="text-muted-foreground">|</span>
-                                <span className="text-muted-foreground">{t('feed.qty', 'Qty')}:</span>
-                                <span className="font-medium">{ro.quantity.toFixed(4)}</span>
-                                <span className="text-muted-foreground">|</span>
-                                <span className="text-muted-foreground text-[10px]">{formatDate(ro.trade_time)}</span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        </div>
-                      </HighlightWrapper>
-                    )
+                    return <AlphaArenaTradeCard key={`${trade.trade_id}-${trade.trade_time}`} trade={trade} isNew={isNew} t={t} />
                   })
                 )}
               </TabsContent>
@@ -1777,518 +1463,26 @@ export default function AlphaArenaFeed({
               </TabsContent>
 
               <TabsContent value="positions" className="flex-1 h-0 overflow-y-auto mt-0 p-4 space-y-4">
-                {loadingPositions && positions.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">{t('feed.loadingPositions', 'Loading positions...')}</div>
-                ) : positions.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">{t('feed.noPositions', 'No active positions currently.')}</div>
-                ) : (
-                  positions.map((snapshot) => {
-                    const marginUsageClass =
-                      snapshot.margin_usage_percent !== undefined && snapshot.margin_usage_percent !== null
-                        ? snapshot.margin_usage_percent >= 75
-                          ? 'text-red-600'
-                          : snapshot.margin_usage_percent >= 50
-                            ? 'text-amber-600'
-                            : 'text-emerald-600'
-                        : 'text-muted-foreground'
-                    return (
-                      <div key={snapshot.account_id} className="border border-border rounded bg-muted/40">
-                        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <div className="text-sm font-semibold uppercase tracking-wide text-foreground">
-                              {snapshot.account_name}
-                            </div>
-                            {snapshot.environment && (
-                              <span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                                {snapshot.environment}
-                              </span>
-                            )}
-                            <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-slate-800/80">
-                              <img
-                                src={snapshot.exchange === 'binance' ? '/static/binance_logo.svg' : '/static/hyperliquid_logo.svg'}
-                                alt={snapshot.exchange === 'binance' ? 'Binance' : 'Hyperliquid'}
-                                className="h-3.5 w-3.5"
-                              />
-                              <span className="text-[10px] font-medium text-slate-200">
-                                {snapshot.exchange === 'binance' ? 'Binance' : 'Hyperliquid'}
-                              </span>
-                            </div>
-                          </div>
-                          <div className="flex flex-wrap items-center gap-4 text-xs uppercase tracking-wide text-muted-foreground">
-                            <div>
-                              <span className="block text-[10px] text-muted-foreground">{t('feed.totalEquity', 'Total Equity')}</span>
-                              <span className="font-semibold text-foreground">
-                                <FlipNumber value={snapshot.total_assets} prefix="$" decimals={2} />
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-[10px] text-muted-foreground">{t('feed.availableCash', 'Available Cash')}</span>
-                              <span className="font-semibold text-foreground">
-                                <FlipNumber value={snapshot.available_cash} prefix="$" decimals={2} />
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-[10px] text-muted-foreground">{t('feed.usedMargin', 'Used Margin')}</span>
-                              <span className="font-semibold text-foreground">
-                                <FlipNumber value={snapshot.used_margin ?? 0} prefix="$" decimals={2} />
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-[10px] text-muted-foreground">{t('feed.marginUsage', 'Margin Usage')}</span>
-                              <span className={`font-semibold ${marginUsageClass}`}>
-                                {snapshot.margin_usage_percent !== undefined && snapshot.margin_usage_percent !== null
-                                  ? `${snapshot.margin_usage_percent.toFixed(2)}%`
-                                  : '—'}
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-[10px] text-muted-foreground">{t('feed.unrealizedPnl', 'Unrealized P&L')}</span>
-                              <span className={`font-semibold ${snapshot.total_unrealized_pnl >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                <FlipNumber value={snapshot.total_unrealized_pnl} prefix="$" decimals={2} />
-                              </span>
-                            </div>
-                            <div>
-                              <span className="block text-[10px] text-muted-foreground">{t('feed.totalReturn', 'Total Return')}</span>
-                              <span className={`font-semibold ${snapshot.total_return && snapshot.total_return >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                {formatPercent(snapshot.total_return)}
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                        <div className="overflow-x-auto">
-                          <table className="min-w-[980px] divide-y divide-border">
-                            <thead className="bg-muted/50">
-                              <tr className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                                <th className="px-4 py-2 text-left">{t('feed.side', 'Side')}</th>
-                                <th className="px-4 py-2 text-left">{t('feed.coin', 'Coin')}</th>
-                                <th className="px-4 py-2 text-left">{t('feed.size', 'Size')}</th>
-                                <th className="px-4 py-2 text-left">{t('feed.entryCurrent', 'Entry / Current')}</th>
-                                <th className="px-4 py-2 text-left">{t('feed.leverage', 'Leverage')}</th>
-                                <th className="px-4 py-2 text-left">{t('feed.marginUsedCol', 'Margin Used')}</th>
-                                <th className="px-4 py-2 text-left">{t('feed.notional', 'Notional')}</th>
-                                <th className="px-4 py-2 text-left">{t('feed.currentValue', 'Current Value')}</th>
-                                <th className="px-4 py-2 text-left">{t('feed.unrealizedPnl', 'Unreal P&L')}</th>
-                                <th className="px-4 py-2 text-left">{t('feed.portfolioPercent', 'Portfolio %')}</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border text-xs text-muted-foreground">
-                              {snapshot.positions.map((position, idx) => {
-                                const leverageLabel =
-                                  position.leverage && position.leverage > 0
-                                    ? `${position.leverage.toFixed(2)}x`
-                                    : '—'
-                                const marginUsed = position.margin_used ?? 0
-                                const roePercent =
-                                  position.return_on_equity !== undefined && position.return_on_equity !== null
-                                    ? position.return_on_equity * 100
-                                    : null
-                                const portfolioPercent =
-                                  position.percentage !== undefined && position.percentage !== null
-                                    ? position.percentage * 100
-                                    : null
-                                const unrealizedDecimals =
-                                  Math.abs(position.unrealized_pnl) < 1 ? 4 : 2
-                                return (
-                                  <tr key={`${position.symbol}-${idx}`}>
-                                    <td className="px-4 py-2 font-semibold text-foreground">{position.side}</td>
-                                    <td className="px-4 py-2">
-                                      <div className="font-semibold text-foreground">
-                                        {position.symbol}
-                                      </div>
-                                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">{position.market}</div>
-                                    </td>
-                                    <td className="px-4 py-2">
-                                      <FlipNumber value={position.quantity} decimals={4} />
-                                    </td>
-                                    <td className="px-4 py-2">
-                                      <div className="text-foreground font-semibold">
-                                        <FlipNumber value={position.avg_cost} prefix="$" decimals={2} />
-                                      </div>
-                                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                        <FlipNumber value={position.current_price} prefix="$" decimals={2} />
-                                      </div>
-                                    </td>
-                                    <td className="px-4 py-2">{leverageLabel}</td>
-                                    <td className="px-4 py-2">
-                                      <FlipNumber value={marginUsed} prefix="$" decimals={2} />
-                                    </td>
-                                    <td className="px-4 py-2">
-                                      <FlipNumber value={position.notional} prefix="$" decimals={2} />
-                                    </td>
-                                    <td className="px-4 py-2">
-                                      <FlipNumber value={position.current_value} prefix="$" decimals={2} />
-                                    </td>
-                                    <td className={`px-4 py-2 font-semibold ${position.unrealized_pnl >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
-                                      <div>
-                                        <FlipNumber value={position.unrealized_pnl} prefix="$" decimals={unrealizedDecimals} />
-                                      </div>
-                                      {roePercent !== null && (
-                                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground">
-                                          {roePercent.toFixed(2)}%
-                                        </div>
-                                      )}
-                                    </td>
-                                    <td className="px-4 py-2">
-                                      {portfolioPercent !== null ? `${portfolioPercent.toFixed(2)}%` : '—'}
-                                    </td>
-                                  </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
+                <AlphaArenaPositionsTab loading={loadingPositions} positions={positions} t={t} />
               </TabsContent>
 
               <TabsContent value="program" className="flex-1 h-0 overflow-y-auto mt-0 p-4 space-y-3">
-                {renderFeedFilterBar()}
-                {loadingProgram && filteredProgramLogs.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">{t('feed.loadingProgram', 'Loading program executions...')}</div>
-                ) : filteredProgramLogs.length === 0 ? (
-                  <div className="text-xs text-muted-foreground">{t('feed.noProgram', 'No program executions yet.')}</div>
-                ) : (
-                  filteredProgramLogs.map((log) => {
-                    const isExpanded = expandedProgramLog === log.id
-                    const iconColors = getProgramIconColors(log.program_id)
-                    return (
-                      <button
-                        key={log.id}
-                        type="button"
-                        className="w-full text-left border border-border rounded bg-muted/30 p-4 space-y-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={() => setExpandedProgramLog(current => current === log.id ? null : log.id)}
-                      >
-                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-                          <div className="flex items-center gap-2">
-                            <svg className="h-5 w-5 rounded-full" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
-                              <path d="M508.416 3.584c-260.096 0-243.712 112.64-243.712 112.64l0.512 116.736h248.32v34.816H166.4S0 248.832 0 510.976s145.408 252.928 145.408 252.928h86.528v-121.856S227.328 496.64 374.784 496.64h246.272s138.24 2.048 138.24-133.632V139.776c-0.512 0 20.48-136.192-250.88-136.192zM371.712 82.432c24.576 0 44.544 19.968 44.544 44.544 0 24.576-19.968 44.544-44.544 44.544-24.576 0-44.544-19.968-44.544-44.544-0.512-24.576 19.456-44.544 44.544-44.544z" fill={iconColors.primary}/>
-                              <path d="M515.584 1022.464c260.096 0 243.712-112.64 243.712-112.64l-0.512-116.736H510.976V757.76h346.624s166.4 18.944 166.4-243.2-145.408-252.928-145.408-252.928h-86.528v121.856s4.608 145.408-142.848 145.408h-245.76s-138.24-2.048-138.24 133.632v224.768c0-0.512-20.992 135.168 250.368 135.168z m136.704-78.336c-24.576 0-44.544-19.968-44.544-44.544 0-24.576 19.968-44.544 44.544-44.544 24.576 0 44.544 19.968 44.544 44.544 0.512 24.576-19.456 44.544-44.544 44.544z" fill={iconColors.secondary}/>
-                            </svg>
-                            <span className="font-semibold text-foreground">{log.program_name}</span>
-                            <span className="text-muted-foreground">→</span>
-                            <span className="text-foreground">{log.account_name}</span>
-                          </div>
-                          <span>{formatDate(log.created_at)}</span>
-                        </div>
-                        <div className="text-sm font-medium text-foreground flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-2">
-                            <span className={`px-2 py-1 rounded text-xs font-bold ${
-                              log.decision_action?.toUpperCase() === 'BUY'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : log.decision_action?.toUpperCase() === 'SELL'
-                                ? 'bg-red-100 text-red-800'
-                                : log.decision_action?.toUpperCase() === 'CLOSE'
-                                ? 'bg-blue-100 text-blue-800'
-                                : log.decision_action?.toUpperCase() === 'HOLD'
-                                ? 'bg-gray-200 text-gray-800'
-                                : 'bg-orange-100 text-orange-800'
-                            }`}>
-                              {(log.decision_action || 'UNKNOWN').toUpperCase()}
-                            </span>
-                            {log.decision_symbol && (
-                              <span className="font-semibold">{log.decision_symbol}</span>
-                            )}
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                              log.trigger_type === 'signal'
-                                ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                                : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'
-                            }`}>
-                              {log.trigger_type === 'signal' ? t('feed.signalPoolTrigger', 'Signal Pool') : t('feed.scheduledTrigger', 'Scheduled')}
-                            </span>
-                            <span className={`px-2 py-0.5 rounded text-[10px] font-medium ${
-                              log.success
-                                ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-                                : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                            }`}>
-                              {log.success ? t('common.success', 'Success') : t('common.failed', 'Failed')}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-1.5 px-1.5 py-0.5 rounded bg-slate-800/80">
-                            <img
-                              src={log.exchange === 'binance' ? '/static/binance_logo.svg' : '/static/hyperliquid_logo.svg'}
-                              alt={log.exchange === 'binance' ? 'Binance' : 'Hyperliquid'}
-                              className="h-3.5 w-3.5"
-                            />
-                            <span className="text-[10px] font-medium text-slate-200">
-                              {log.exchange === 'binance' ? 'Binance' : 'Hyperliquid'}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {isExpanded ? log.decision_reason : `${(log.decision_reason || '').slice(0, 160)}${(log.decision_reason || '').length > 160 ? '…' : ''}`}
-                        </div>
-                        {/* Stats row - similar to ModelChat */}
-                        <div className="flex flex-wrap items-center gap-4 text-xs text-muted-foreground uppercase tracking-wide">
-                          <span>{t('feed.equity', 'Equity')}: <span className="font-semibold text-foreground">
-                            <FlipNumber value={log.market_context?.input_data?.total_equity || 0} prefix="$" decimals={2} />
-                          </span></span>
-                          <span>{t('feed.marginUsed', 'Margin')}: <span className="font-semibold text-foreground">{(log.market_context?.input_data?.margin_usage_percent || 0).toFixed(1)}%</span></span>
-                          <span>{t('feed.executed', 'Executed')}: <span className={`font-semibold ${log.success ? 'text-emerald-600' : 'text-red-600'}`}>{log.success ? 'YES' : 'NO'}</span></span>
-                        </div>
-                        {!isExpanded && (
-                          <div className="mt-2 text-[11px] text-primary underline">
-                            {t('feed.clickExpand', 'Click to expand')}
-                          </div>
-                        )}
-                        {isExpanded && (() => {
-                          const ctx = log.market_context
-                          const inputData = ctx?.input_data
-                          const dataQueries = ctx?.data_queries || []
-                          const execLogs = ctx?.execution_logs || []
-                          return (
-                          <div className="space-y-2 pt-3 border-t border-border/50" onClick={(e) => e.stopPropagation()}>
-                            {/* Input Data Collapsible */}
-                            <Collapsible defaultOpen>
-                              <div className="flex items-center justify-between">
-                                <CollapsibleTrigger className="flex items-center gap-2 p-2 hover:bg-muted rounded text-sm font-medium">
-                                  <ChevronDown className="h-4 w-4" />
-                                  {t('feed.inputData', 'Input Data')}
-                                </CollapsibleTrigger>
-                                {inputData && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleCopyProgramSection(log.id, 'input', inputData)
-                                    }}
-                                    className={`px-2 py-1 text-[10px] font-medium rounded transition-all ${
-                                      copiedProgramSection === `${log.id}-input`
-                                        ? 'bg-emerald-500/20 text-emerald-600'
-                                        : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
-                                    }`}
-                                  >
-                                    {copiedProgramSection === `${log.id}-input` ? `✓ ${t('feed.copied', 'Copied')}` : t('feed.copy', 'Copy')}
-                                  </button>
-                                )}
-                              </div>
-                              <CollapsibleContent className="pl-4 text-xs space-y-2 pb-2">
-                                {inputData ? (
-                                  <>
-                                    {/* Basic Info */}
-                                    <div className="space-y-1 p-2 bg-muted/50 rounded">
-                                      <div className="font-medium text-muted-foreground mb-1">{t('feed.basicInfo', 'Basic Info')}</div>
-                                      <div>{t('feed.environment', 'Environment')}: <span className="font-mono">{inputData.environment || 'N/A'}</span></div>
-                                      <div>{t('feed.trigger', 'Trigger')}: <span className="font-mono">{inputData.trigger_symbol || '(scheduled)'}</span> ({inputData.trigger_type})</div>
-                                      {inputData.signal_source_type && (
-                                        <div>{t('feed.source', 'Source')}: <span className="font-mono">{inputData.signal_source_type}</span></div>
-                                      )}
-                                      <div>{t('feed.balance', 'Balance')}: <span className="font-mono">${Number(inputData.available_balance || 0).toFixed(2)}</span></div>
-                                      <div>{t('feed.equity', 'Equity')}: <span className="font-mono">${Number(inputData.total_equity || 0).toFixed(2)}</span></div>
-                                      <div>{t('feed.marginUsed', 'Margin Used')}: <span className="font-mono">{Number(inputData.margin_usage_percent || 0).toFixed(1)}%</span></div>
-                                      <div>{t('feed.maxLeverage', 'Max Leverage')}: <span className="font-mono">{inputData.max_leverage || 'N/A'}</span></div>
-                                      <div>{t('feed.defaultLeverage', 'Default Leverage')}: <span className="font-mono">{inputData.default_leverage || 'N/A'}</span></div>
-                                    </div>
-
-                                    {/* Signal Context */}
-                                    {inputData.trigger_type === 'signal' && (
-                                      <Collapsible>
-                                        <CollapsibleTrigger className="flex items-center gap-2 w-full p-2 hover:bg-muted rounded text-xs font-medium">
-                                          <ChevronRight className="h-3 w-3" />
-                                          {t('feed.signalContext', 'Signal Context')} ({inputData.signal_pool_name || inputData.signal_pool_id || 'N/A'})
-                                        </CollapsibleTrigger>
-                                        <CollapsibleContent className="pl-4 text-xs">
-                                          <pre className="bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-{JSON.stringify({
-  signal_pool_name: inputData.signal_pool_name,
-  signal_pool_id: inputData.signal_pool_id,
-  pool_logic: inputData.pool_logic,
-  signal_source_type: inputData.signal_source_type,
-  triggered_signals: inputData.triggered_signals,
-  wallet_event: inputData.wallet_event,
-}, null, 2)}
-                                          </pre>
-                                        </CollapsibleContent>
-                                      </Collapsible>
-                                    )}
-
-                                    {/* Trigger Market Regime */}
-                                    {inputData.trigger_market_regime && (
-                                      <Collapsible>
-                                        <CollapsibleTrigger className="flex items-center gap-2 w-full p-2 hover:bg-muted rounded text-xs font-medium">
-                                          <ChevronRight className="h-3 w-3" />
-                                          {t('feed.triggerRegime', 'Trigger Market Regime')} ({inputData.trigger_market_regime.regime})
-                                        </CollapsibleTrigger>
-                                        <CollapsibleContent className="pl-4 text-xs">
-                                          <pre className="bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-{JSON.stringify(inputData.trigger_market_regime, null, 2)}
-                                          </pre>
-                                        </CollapsibleContent>
-                                      </Collapsible>
-                                    )}
-
-                                    {/* Positions */}
-                                    <Collapsible>
-                                      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2 hover:bg-muted rounded text-xs font-medium">
-                                        <ChevronRight className="h-3 w-3" />
-                                        {t('feed.positions', 'Positions')} ({inputData.positions_count || Object.keys(inputData.positions || {}).length})
-                                      </CollapsibleTrigger>
-                                      <CollapsibleContent className="pl-4 text-xs">
-                                        <pre className="bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-{JSON.stringify(inputData.positions, null, 2)}
-                                        </pre>
-                                      </CollapsibleContent>
-                                    </Collapsible>
-
-                                    {/* Open Orders */}
-                                    <Collapsible>
-                                      <CollapsibleTrigger className="flex items-center gap-2 w-full p-2 hover:bg-muted rounded text-xs font-medium">
-                                        <ChevronRight className="h-3 w-3" />
-                                        {t('feed.openOrders', 'Open Orders')} ({inputData.open_orders_count ?? (inputData.open_orders?.length || 0)})
-                                      </CollapsibleTrigger>
-                                      <CollapsibleContent className="pl-4 text-xs">
-                                        <pre className="bg-muted p-2 rounded overflow-x-auto whitespace-pre-wrap">
-{JSON.stringify(inputData.open_orders, null, 2)}
-                                        </pre>
-                                      </CollapsibleContent>
-                                    </Collapsible>
-                                  </>
-                                ) : (
-                                  <div className="text-muted-foreground">{t('feed.noInputData', 'No input data available')}</div>
-                                )}
-                              </CollapsibleContent>
-                            </Collapsible>
-
-                            {/* Data Queries Collapsible */}
-                            {dataQueries.length > 0 && (
-                              <Collapsible>
-                                <div className="flex items-center justify-between">
-                                  <CollapsibleTrigger className="flex items-center gap-2 p-2 hover:bg-muted rounded text-sm font-medium">
-                                    <ChevronDown className="h-4 w-4" />
-                                    {t('feed.dataQueries', 'Data Queries')} ({dataQueries.length})
-                                  </CollapsibleTrigger>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleCopyProgramSection(log.id, 'queries', dataQueries)
-                                    }}
-                                    className={`px-2 py-1 text-[10px] font-medium rounded transition-all ${
-                                      copiedProgramSection === `${log.id}-queries`
-                                        ? 'bg-emerald-500/20 text-emerald-600'
-                                        : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
-                                    }`}
-                                  >
-                                    {copiedProgramSection === `${log.id}-queries` ? `✓ ${t('feed.copied', 'Copied')}` : t('feed.copy', 'Copy')}
-                                  </button>
-                                </div>
-                                <CollapsibleContent className="pl-6 text-xs space-y-2 max-h-48 overflow-y-auto pb-2">
-                                  {dataQueries.map((q, i) => (
-                                    <div key={i} className="p-2 bg-muted rounded">
-                                      <div className="font-mono text-primary">{q.method}({JSON.stringify(q.args)})</div>
-                                      <div className="text-muted-foreground mt-1 truncate">→ {JSON.stringify(q.result).slice(0, 100)}...</div>
-                                    </div>
-                                  ))}
-                                </CollapsibleContent>
-                              </Collapsible>
-                            )}
-
-                            {/* Execution Logs Collapsible */}
-                            {execLogs.length > 0 && (
-                              <Collapsible>
-                                <div className="flex items-center justify-between">
-                                  <CollapsibleTrigger className="flex items-center gap-2 p-2 hover:bg-muted rounded text-sm font-medium">
-                                    <ChevronDown className="h-4 w-4" />
-                                    {t('feed.executionLogs', 'Execution Logs')} ({execLogs.length})
-                                  </CollapsibleTrigger>
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      handleCopyProgramSection(log.id, 'logs', execLogs)
-                                    }}
-                                    className={`px-2 py-1 text-[10px] font-medium rounded transition-all ${
-                                      copiedProgramSection === `${log.id}-logs`
-                                        ? 'bg-emerald-500/20 text-emerald-600'
-                                        : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground'
-                                    }`}
-                                  >
-                                    {copiedProgramSection === `${log.id}-logs` ? `✓ ${t('feed.copied', 'Copied')}` : t('feed.copy', 'Copy')}
-                                  </button>
-                                </div>
-                                <CollapsibleContent className="pl-6 text-xs font-mono bg-muted p-2 rounded max-h-32 overflow-y-auto">
-                                  {execLogs.map((line, i) => (
-                                    <div key={i}>{line}</div>
-                                  ))}
-                                </CollapsibleContent>
-                              </Collapsible>
-                            )}
-
-                            {/* Decision Details / Error Collapsible */}
-                            {(log.decision_json || log.error_message) && (
-                              <Collapsible defaultOpen>
-                                <CollapsibleTrigger className="flex items-center gap-2 w-full p-2 hover:bg-muted rounded text-sm font-medium">
-                                  <ChevronDown className="h-4 w-4" />
-                                  {log.success ? t('feed.decisionDetails', 'Decision Details') : t('common.error', 'Error')}
-                                </CollapsibleTrigger>
-                                <CollapsibleContent className="pl-6 text-xs pb-2">
-                                  <pre className={`p-2 rounded overflow-x-auto whitespace-pre-wrap ${
-                                    log.success ? 'bg-muted' : 'bg-red-50 dark:bg-red-900/20 text-red-600'
-                                  }`}>
-                                    {log.success
-                                      ? JSON.stringify(log.decision_json, null, 2)
-                                      : log.error_message}
-                                  </pre>
-                                </CollapsibleContent>
-                              </Collapsible>
-                            )}
-                            <div className="mt-3 flex justify-end">
-                              <button
-                                type="button"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  handleCopyProgramLog(log)
-                                }}
-                                className={`px-3 py-1.5 text-[10px] font-medium rounded transition-all ${
-                                  copiedProgramLog === log.id
-                                    ? 'bg-emerald-500/20 text-emerald-600 border border-emerald-500/30'
-                                    : 'bg-muted/60 text-muted-foreground hover:bg-muted hover:text-foreground border border-border/60'
-                                }`}
-                              >
-                                {copiedProgramLog === log.id ? `✓ ${t('feed.copied', 'Copied')}` : t('feed.copy', 'Copy')}
-                              </button>
-                            </div>
-                          </div>
-                          )
-                        })()}
-                        {isExpanded && (
-                          <div className="mt-2 text-[11px] text-primary underline">
-                            {t('feed.clickCollapse', 'Click to collapse')}
-                          </div>
-                        )}
-                      </button>
-                    )
-                  })
-                )}
-
-                {/* Load More Button for Program */}
-                {programLogs.length > 0 && hasMoreProgram && (
-                  <div className="flex justify-center pt-4">
-                    <Button
-                      onClick={loadMoreProgramData}
-                      disabled={isLoadingMoreProgram}
-                      variant="outline"
-                      size="sm"
-                      className="text-xs"
-                    >
-                      {isLoadingMoreProgram ? (
-                        <>
-                          <Loader2 className="w-3 h-3 mr-2 animate-spin" />
-                          {t('feed.loading', 'Loading...')}
-                        </>
-                      ) : (
-                        t('feed.loadMore', 'Load More')
-                      )}
-                    </Button>
-                  </div>
-                )}
-
-                {programLogs.length > 0 && !hasMoreProgram && (
-                  <div className="flex justify-center pt-4 text-xs text-muted-foreground">
-                    {t('feed.allLoaded', 'All history loaded')}
-                  </div>
-                )}
+                <AlphaArenaProgramTab
+                  filterBar={renderFeedFilterBar()}
+                  loading={loadingProgram}
+                  logs={filteredProgramLogs}
+                  totalLogsCount={programLogs.length}
+                  expandedLog={expandedProgramLog}
+                  copiedLog={copiedProgramLog}
+                  copiedSection={copiedProgramSection}
+                  hasMore={hasMoreProgram}
+                  isLoadingMore={isLoadingMoreProgram}
+                  t={t}
+                  setExpandedLog={setExpandedProgramLog}
+                  onCopyLog={handleCopyProgramLog}
+                  onCopySection={handleCopyProgramSection}
+                  onLoadMore={loadMoreProgramData}
+                />
               </TabsContent>
             </>
           )}

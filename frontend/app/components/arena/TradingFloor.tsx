@@ -1,9 +1,19 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import Workstation from './Workstation'
 import NewsZone from './NewsZone'
+import ArenaAIContextPanel from './ArenaAIContextPanel'
 import type { CharacterState } from './pixelData/characters'
-import type { PlacedAsset, SceneConfig } from './SceneEditor'
-import { STORAGE_KEY, CANVAS_W, CANVAS_H, getWsArea, getNewsArea, normalizeSceneConfig, shouldUseOfficialConfig } from './SceneEditor'
+import type { AISupervisorArea, NewsArea, PlacedAsset, SceneConfig, WorkstationArea } from './SceneEditor'
+import {
+  STORAGE_KEY,
+  CANVAS_W,
+  CANVAS_H,
+  getAiSupervisorArea,
+  getWsArea,
+  getNewsArea,
+  normalizeSceneConfig,
+  shouldUseOfficialConfig,
+} from './SceneEditor'
 import { OFFICIAL_SCENE_CONFIG } from './officialSceneConfig'
 
 export interface MonitorPosition {
@@ -93,6 +103,8 @@ function SceneAssets({ assets }: { assets: PlacedAsset[] }) {
 const WALL_H = 80
 const WS_ITEM_H = 260
 const WS_GAP = 16
+const AI_PANEL_W = 300
+const AI_PANEL_H = 392
 
 // Calculate workstation rows and visual height after scale
 function calcWsVisualH(traders: TraderData[], ws: { w: number; scale: number }): number {
@@ -109,13 +121,97 @@ function calcWsVisualH(traders: TraderData[], ws: { w: number; scale: number }):
   return unscaledH * ws.scale
 }
 
-function VirtualCanvas({ traders, sceneConfig, canvasW, canvasH, wsVisualH }: {
+type DraggableAreaKey = 'workstationArea' | 'newsArea' | 'aiSupervisorArea'
+type DraggableArea = WorkstationArea | NewsArea | AISupervisorArea
+type AreaPatch = Partial<WorkstationArea & NewsArea & AISupervisorArea>
+
+type AreaDragState = {
+  key: DraggableAreaKey
+  pointerId: number
+  startX: number
+  startY: number
+  originX: number
+  originY: number
+  maxX: number
+  maxY: number
+}
+
+function clamp(value: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, value))
+}
+
+function VirtualCanvas({
+  traders,
+  sceneConfig,
+  canvasW,
+  canvasH,
+  wsVisualH,
+  viewportScale,
+  onUpdateArea,
+}: {
   traders: TraderData[]; sceneConfig: SceneConfig | null
   canvasW: number; canvasH: number; wsVisualH: number
+  viewportScale: number
+  onUpdateArea: (area: DraggableAreaKey, patch: AreaPatch) => void
 }) {
   const ws = getWsArea(sceneConfig)
   const na = getNewsArea(sceneConfig)
+  const aiArea = getAiSupervisorArea(sceneConfig)
   const animMap = sceneConfig?.animationMap
+  const primaryAccountId = traders[0]?.accountId ?? null
+  const primaryExchange = (traders.flatMap(t => t.exchanges.map(ex => ex.exchange)).find(Boolean) || 'binance').toLowerCase()
+  const dragRef = useRef<AreaDragState | null>(null)
+
+  const startAreaDrag = useCallback((
+    e: React.PointerEvent<HTMLDivElement>,
+    key: DraggableAreaKey,
+    area: DraggableArea,
+  ) => {
+    if ((e.target as HTMLElement).closest('[data-no-screen-drag="true"]')) return
+    e.preventDefault()
+    e.stopPropagation()
+    e.currentTarget.setPointerCapture(e.pointerId)
+    const areaW = key === 'aiSupervisorArea' ? AI_PANEL_W * (area.scale || 1) : area.w
+    const areaH = key === 'aiSupervisorArea' ? AI_PANEL_H * (area.scale || 1) : area.h
+    dragRef.current = {
+      key,
+      pointerId: e.pointerId,
+      startX: e.clientX,
+      startY: e.clientY,
+      originX: area.x,
+      originY: area.y,
+      maxX: Math.max(0, canvasW - areaW),
+      maxY: Math.max(0, canvasH - areaH),
+    }
+  }, [canvasW, canvasH])
+
+  const moveAreaDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const drag = dragRef.current
+    if (!drag || drag.pointerId !== e.pointerId) return
+    e.preventDefault()
+    e.stopPropagation()
+    const dx = (e.clientX - drag.startX) / viewportScale
+    const dy = (e.clientY - drag.startY) / viewportScale
+    onUpdateArea(drag.key, {
+      x: Math.round(clamp(drag.originX + dx, 0, drag.maxX)),
+      y: Math.round(clamp(drag.originY + dy, WALL_H + 4, drag.maxY)),
+    })
+  }, [onUpdateArea, viewportScale])
+
+  const endAreaDrag = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (dragRef.current?.pointerId === e.pointerId) {
+      e.preventDefault()
+      e.stopPropagation()
+      dragRef.current = null
+    }
+  }, [])
+
+  const getDragHandlers = useCallback((key: DraggableAreaKey, area: DraggableArea) => ({
+    onPointerDown: (e: React.PointerEvent<HTMLDivElement>) => startAreaDrag(e, key, area),
+    onPointerMove: moveAreaDrag,
+    onPointerUp: endAreaDrag,
+    onPointerCancel: endAreaDrag,
+  }), [startAreaDrag, moveAreaDrag, endAreaDrag])
 
   // Collect preset IDs already bound to traders
   const boundPresetIds = useMemo(() => {
@@ -168,7 +264,12 @@ function VirtualCanvas({ traders, sceneConfig, canvasW, canvasH, wsVisualH }: {
       <div className="absolute z-10" style={{
         left: ws.x, top: ws.y, width: ws.w,
         height: wsVisualH, overflow: 'hidden',
-      }}>
+        cursor: 'move',
+        touchAction: 'none',
+      }}
+        title="Drag to move AI trader screens"
+        {...getDragHandlers('workstationArea', ws)}
+      >
         <div style={{
           display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-start',
           alignItems: 'flex-start', gap: WS_GAP,
@@ -194,7 +295,12 @@ function VirtualCanvas({ traders, sceneConfig, canvasW, canvasH, wsVisualH }: {
       <div className="absolute z-10" style={{
         left: na.x, top: na.y, width: na.w, height: na.h,
         overflow: 'hidden',
-      }}>
+        cursor: 'move',
+        touchAction: 'none',
+      }}
+        title="Drag to move news and flow screens"
+        {...getDragHandlers('newsArea', na)}
+      >
         <div style={{
           transform: `scale(${na.scale})`, transformOrigin: 'top left',
           width: na.w / na.scale, height: na.h / na.scale,
@@ -203,11 +309,21 @@ function VirtualCanvas({ traders, sceneConfig, canvasW, canvasH, wsVisualH }: {
             areaW={na.w}
             areaH={na.h}
             scale={na.scale}
+            exchange={primaryExchange}
             boundTraderPresetIds={boundPresetIds}
             animationMap={animMap}
           />
         </div>
       </div>
+
+      <ArenaAIContextPanel
+        accountId={primaryAccountId}
+        exchange={primaryExchange}
+        x={aiArea.x}
+        y={aiArea.y}
+        scale={aiArea.scale}
+        dragHandlers={getDragHandlers('aiSupervisorArea', aiArea)}
+      />
     </div>
   )
 }
@@ -220,21 +336,52 @@ export default function TradingFloor({ traders }: TradingFloorProps) {
   const dragRef = useRef<{ startX: number; startY: number; scrollLeft: number; scrollTop: number } | null>(null)
 
   useEffect(() => {
+    let parsedLocal: Partial<SceneConfig> | null = null
     try {
       const raw = localStorage.getItem(STORAGE_KEY)
       if (raw) {
-        const parsed = JSON.parse(raw)
-        if (!shouldUseOfficialConfig(parsed)) {
-          setSceneConfig(normalizeSceneConfig(parsed))
+        parsedLocal = JSON.parse(raw)
+        if (!shouldUseOfficialConfig(parsedLocal)) {
+          setSceneConfig(normalizeSceneConfig(parsedLocal))
           return
         }
       }
     } catch { /* ignore */ }
     const officialConfig = normalizeSceneConfig(OFFICIAL_SCENE_CONFIG)
-    setSceneConfig(officialConfig)
+    const migratedConfig = parsedLocal
+      ? normalizeSceneConfig({
+        ...officialConfig,
+        workstationArea: parsedLocal.workstationArea,
+        newsArea: parsedLocal.newsArea,
+        aiSupervisorArea: parsedLocal.aiSupervisorArea,
+      })
+      : officialConfig
+    setSceneConfig(migratedConfig)
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(officialConfig))
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(migratedConfig))
     } catch { /* ignore */ }
+  }, [])
+
+  const updateSceneArea = useCallback((area: DraggableAreaKey, patch: AreaPatch) => {
+    setSceneConfig(prev => {
+      const base = normalizeSceneConfig(prev || OFFICIAL_SCENE_CONFIG)
+      const current = area === 'workstationArea'
+        ? getWsArea(base)
+        : area === 'newsArea'
+          ? getNewsArea(base)
+          : getAiSupervisorArea(base)
+      const next = normalizeSceneConfig({
+        ...base,
+        [area]: {
+          ...current,
+          ...patch,
+        },
+      })
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+      } catch { /* ignore */ }
+      return next
+    })
   }, [])
 
   useEffect(() => {
@@ -303,7 +450,10 @@ export default function TradingFloor({ traders }: TradingFloorProps) {
           transformOrigin: 'top left',
         }}>
           <VirtualCanvas traders={traders} sceneConfig={sceneConfig}
-            canvasW={canvasW} canvasH={canvasH} wsVisualH={wsVisualH} />
+            canvasW={canvasW} canvasH={canvasH} wsVisualH={wsVisualH}
+            viewportScale={scale}
+            onUpdateArea={updateSceneArea}
+          />
         </div>
       </div>
     </div>

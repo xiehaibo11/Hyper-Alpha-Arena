@@ -55,16 +55,8 @@ def _clear_client_cache(account_id: int = None, environment: str = None):
 
 
 def _is_premium_user(db: Session) -> bool:
-    """Check if there is a premium member currently logged in"""
-    try:
-        subscription = db.query(UserSubscription).join(User).filter(
-            User.username != 'default',
-            UserSubscription.subscription_type == 'premium'
-        ).first()
-        return subscription is not None
-    except Exception as e:
-        logger.warning(f"Failed to check premium status: {e}")
-        return False
+    """Self-hosted deployment: advanced limits are unlocked locally."""
+    return True
 
 
 # Daily quota uses centralized config
@@ -903,30 +895,13 @@ def get_symbol_watchlist():
 
 @router.put("/symbols/watchlist")
 def update_symbol_watchlist(payload: BinanceSymbolSelectionRequest):
-    """Update Binance watchlist (max 10 symbols).
+    """Update Binance watchlist.
     Also updates Binance data collectors to use the new symbols.
     """
     from services.binance_symbol_service import update_selected_symbols, MAX_WATCHLIST_SYMBOLS
 
     try:
         symbols = update_selected_symbols(payload.symbols)
-
-        # Update Binance collectors with new symbols
-        try:
-            from services.exchanges.binance_collector import binance_collector
-            if binance_collector.running:
-                binance_collector.refresh_symbols(symbols if symbols else ["BTC"])
-                logger.info(f"[Binance] Collector symbols updated to: {symbols}")
-        except Exception as e:
-            logger.warning(f"[Binance] Failed to update collector symbols: {e}")
-
-        try:
-            from services.exchanges.binance_ws_collector import binance_ws_collector
-            if binance_ws_collector.running:
-                binance_ws_collector.refresh_symbols(symbols if symbols else ["BTC"])
-                logger.info(f"[Binance] WS collector symbols updated to: {symbols}")
-        except Exception as e:
-            logger.warning(f"[Binance] Failed to update WS collector symbols: {e}")
 
         return {
             "symbols": symbols,

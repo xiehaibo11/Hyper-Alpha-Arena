@@ -9,6 +9,11 @@ from pydantic import BaseModel
 
 from database.connection import get_db
 from database.models import SystemConfig
+from services.market_data_archive import (
+    default_market_data_retention_days,
+    get_market_data_archive_status,
+    market_data_archive_service,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -17,7 +22,7 @@ router = APIRouter(prefix="/api/system", tags=["system"])
 # Config keys
 HYPERLIQUID_RETENTION_KEY = "hyperliquid_retention_days"
 BINANCE_RETENTION_KEY = "binance_retention_days"
-DEFAULT_RETENTION_DAYS = 365
+DEFAULT_RETENTION_DAYS = default_market_data_retention_days()
 
 
 class RetentionDaysRequest(BaseModel):
@@ -28,6 +33,10 @@ class RetentionDaysRequest(BaseModel):
 class RetentionDaysResponse(BaseModel):
     days: int
     exchange: str = "hyperliquid"
+
+
+class MarketDataArchiveRunRequest(BaseModel):
+    exchange: str = "all"
 
 
 def get_retention_key(exchange: str) -> str:
@@ -261,13 +270,52 @@ def get_retention_days_api(exchange: str = "hyperliquid", db: Session = Depends(
 @router.put("/retention-days")
 def update_retention_days(request: RetentionDaysRequest, db: Session = Depends(get_db)):
     """Update retention days setting for specific exchange"""
-    if request.days < 7 or request.days > 730:
-        raise HTTPException(status_code=400, detail="Retention days must be between 7 and 730")
+    if request.days < 1 or request.days > 730:
+        raise HTTPException(status_code=400, detail="Retention days must be between 1 and 730")
 
     days = set_retention_days(db, request.days, request.exchange)
     logger.info(f"Updated {request.exchange} retention to {days} days")
 
     return RetentionDaysResponse(days=days, exchange=request.exchange)
+
+
+@router.get("/market-data-archive/status")
+def get_market_data_archive_status_api():
+    """Get market data archive configuration status."""
+    return get_market_data_archive_status()
+
+
+@router.post("/market-data-archive/run")
+def run_market_data_archive(request: MarketDataArchiveRunRequest, db: Session = Depends(get_db)):
+    """Run archive cleanup immediately for one exchange or all exchanges."""
+    exchange = request.exchange.strip().lower()
+    if exchange not in {"all", "hyperliquid", "binance"}:
+        raise HTTPException(status_code=400, detail="exchange must be all, hyperliquid, or binance")
+
+    exchanges = ["hyperliquid", "binance"] if exchange == "all" else [exchange]
+    results = []
+
+    try:
+        for item in exchanges:
+            retention_days = get_retention_days(db, item)
+            summary = market_data_archive_service.archive_expired_for_exchange(
+                db=db,
+                exchange=item,
+                retention_days=retention_days,
+            )
+            results.append({
+                "exchange": summary.exchange,
+                "enabled": summary.enabled,
+                "retention_days": summary.retention_days,
+                "archived_rows": summary.archived_rows,
+                "deleted_rows": summary.deleted_rows,
+                "uploaded_objects": summary.uploaded_objects,
+                "skipped_reason": summary.skipped_reason,
+            })
+        return {"results": results}
+    except Exception as e:
+        logger.exception("Manual market data archive run failed")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @router.get("/collection-days")

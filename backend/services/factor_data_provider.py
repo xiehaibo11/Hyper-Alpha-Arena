@@ -73,6 +73,8 @@ def ensure_kline_coverage(
     try:
         if exchange == "binance":
             _backfill_binance(db, symbol, period, min_bars)
+        elif exchange == "okx":
+            _backfill_okx(db, symbol, period, min_bars)
         else:
             _backfill_hyperliquid(symbol, period, min_bars)
     except Exception as e:
@@ -142,10 +144,27 @@ def _backfill_binance(db: Session, symbol: str, period: str, target_bars: int):
           f"done, total {total_fetched} bars", flush=True)
 
 
+def _backfill_okx(db: Session, symbol: str, period: str, target_bars: int):
+    """Backfill OKX klines via public REST pagination."""
+    from services.exchanges.data_persistence import ExchangeDataPersistence
+    from services.exchanges.okx_adapter import OKXAdapter
+
+    adapter = OKXAdapter()
+    persistence = ExchangeDataPersistence(db)
+    count = min(target_bars, 2000)
+    klines = adapter.fetch_klines(symbol, period, limit=count)
+    if klines:
+        persistence.save_klines(klines)
+    print(f"[FactorDataProvider] OKX backfill {symbol}/{period}: "
+          f"got {len(klines) if klines else 0} bars", flush=True)
+
+
 def _period_to_seconds(period: str) -> int:
     """Convert period string to seconds."""
     mapping = {
-        "1m": 60, "5m": 300, "15m": 900,
-        "1h": 3600, "4h": 14400, "1d": 86400,
+        "1m": 60, "3m": 180, "5m": 300, "15m": 900, "30m": 1800,
+        "1h": 3600, "2h": 7200, "4h": 14400, "6h": 21600,
+        "8h": 28800, "12h": 43200, "1d": 86400,
+        "3d": 259200, "1w": 604800, "1M": 2592000,
     }
     return mapping.get(period, 3600)

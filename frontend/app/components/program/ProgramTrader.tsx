@@ -152,7 +152,7 @@ export default function ProgramTrader() {
   const [bindingProgramId, setBindingProgramId] = useState<number | null>(null)
   const [bindingAccountId, setBindingAccountId] = useState<number | null>(null)
   const [bindingPoolIds, setBindingPoolIds] = useState<number[]>([])
-  const [bindingInterval, setBindingInterval] = useState(300)
+  const [bindingInterval, setBindingInterval] = useState(180)
   const [bindingScheduledEnabled, setBindingScheduledEnabled] = useState(false)
   const [bindingActive, setBindingActive] = useState(true)
   const [bindingExchange, setBindingExchange] = useState<string>('hyperliquid')
@@ -445,7 +445,7 @@ export default function ProgramTrader() {
     setBindingProgramId(null)
     setBindingAccountId(null)
     setBindingPoolIds([])
-    setBindingInterval(300)
+    setBindingInterval(180)
     setBindingScheduledEnabled(false)
     setBindingActive(true)
     setBindingExchange('hyperliquid')
@@ -1152,7 +1152,7 @@ export default function ProgramTrader() {
                   ✨ {t('programTrader.tryAiCoding', 'Try AI Coding')}
                 </Button>
                 <p className="text-[10px] text-muted-foreground mt-2 text-center">
-                  {t('programTrader.premiumFeature', 'Premium feature')}
+                  {t('programTrader.selfHostedUnlocked', 'Self-hosted unlocked')}
                 </p>
               </div>
             </div>

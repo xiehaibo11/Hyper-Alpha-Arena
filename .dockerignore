@@ -25,6 +25,10 @@ backend/build
 frontend/node_modules
 frontend/.pnpm-store
 
+# Generated build outputs
+frontend/dist
+backend/static
+
 # IDE
 .vscode
 .idea
@@ -48,6 +52,9 @@ arena.pid
 data/
 
 # Environment
+.env
+.env.*
+!.env.example
 .env.local
 .env.*.local
 

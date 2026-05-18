@@ -1,5 +1,6 @@
 import logging
 import re
+import time
 from datetime import timezone
 from email.utils import parsedate_to_datetime
 from html import unescape
@@ -12,6 +13,33 @@ import requests
 logger = logging.getLogger(__name__)
 
 NEWS_FEED_URL = "https://coinjournal.net/news/feed/"
+NEWS_FEED_CACHE_TTL_SECONDS = 15 * 60
+NEWS_FEED_STALE_TTL_SECONDS = 6 * 60 * 60
+NEWS_FEED_WARNING_INTERVAL_SECONDS = 10 * 60
+
+_cached_news_text = ""
+_cached_news_at = 0.0
+_last_warning_at = 0.0
+
+
+def _warn_fetch_failure(message: str, *args) -> None:
+    global _last_warning_at
+    now = time.monotonic()
+    if now - _last_warning_at < NEWS_FEED_WARNING_INTERVAL_SECONDS:
+        logger.info(message, *args)
+        return
+    _last_warning_at = now
+    logger.warning(message, *args)
+
+
+def _cached_news_if_available(*, allow_stale: bool = False) -> str:
+    if not _cached_news_text:
+        return ""
+    age = time.monotonic() - _cached_news_at
+    ttl = NEWS_FEED_STALE_TTL_SECONDS if allow_stale else NEWS_FEED_CACHE_TTL_SECONDS
+    if age <= ttl:
+        return _cached_news_text
+    return ""
 
 
 def _strip_html_tags(text: str) -> str:
@@ -23,11 +51,17 @@ def _strip_html_tags(text: str) -> str:
 
 
 def fetch_latest_news(max_chars: int = 4000) -> str:
+    global _cached_news_at, _cached_news_text
+
+    cached = _cached_news_if_available()
+    if cached:
+        return cached[:max_chars]
+
     try:
         response = requests.get(NEWS_FEED_URL, timeout=10)
         if response.status_code != 200:
-            logger.warning("Failed to fetch news feed: status %s", response.status_code)
-            return ""
+            _warn_fetch_failure("Failed to fetch news feed: status %s", response.status_code)
+            return _cached_news_if_available(allow_stale=True)[:max_chars]
 
         root = ET.fromstring(response.content)
         channel = root.find("channel")
@@ -88,8 +122,12 @@ def fetch_latest_news(max_chars: int = 4000) -> str:
 
             entries.append(entry_text)
 
-        return "\n".join(entries)
+        result = "\n".join(entries)
+        if result:
+            _cached_news_text = result
+            _cached_news_at = time.monotonic()
+        return result
 
     except Exception as err:  # noqa: BLE001
-        logger.warning("Failed to process news feed: %s", err)
-        return ""
+        _warn_fetch_failure("Failed to process news feed: %s", err)
+        return _cached_news_if_available(allow_stale=True)[:max_chars]

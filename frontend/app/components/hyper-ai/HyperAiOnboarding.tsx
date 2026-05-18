@@ -415,7 +415,7 @@ function ChatStep({ onSkip, onComplete }: { onSkip: () => void; onComplete: () =
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
       sendMessage(input)
     }

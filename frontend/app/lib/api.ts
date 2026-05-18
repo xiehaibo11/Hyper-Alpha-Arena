@@ -1,49 +1,7 @@
 import Cookies from 'js-cookie'
 
-// API configuration
-const API_BASE_URL = process.env.NODE_ENV === 'production'
-  ? '/api'
-  : '/api'  // Use proxy, don't hardcode port
-
-// Hardcoded user for paper trading (matches backend initialization)
-const HARDCODED_USERNAME = 'default'
-
-// Helper function for making API requests
-export async function apiRequest(
-  endpoint: string, 
-  options: RequestInit = {}
-): Promise<Response> {
-  const url = `${API_BASE_URL}${endpoint}`
-  
-  const defaultOptions: RequestInit = {
-    headers: {
-      'Content-Type': 'application/json',
-      ...options.headers,
-    },
-    ...options,
-  }
-  
-  const response = await fetch(url, defaultOptions)
-  
-  if (!response.ok) {
-    // Try to extract error message from response body
-    try {
-      const errorData = await response.json()
-      const errorMessage = errorData.detail || errorData.message || `HTTP error! status: ${response.status}`
-      throw new Error(errorMessage)
-    } catch (e) {
-      // If parsing fails, throw generic error
-      throw new Error(`HTTP error! status: ${response.status}`)
-    }
-  }
-  
-  const contentType = response.headers.get('content-type')
-  if (!contentType || !contentType.includes('application/json')) {
-    throw new Error('Response is not JSON')
-  }
-  
-  return response
-}
+import { apiRequest } from './apiClient'
+export { apiRequest } from './apiClient'
 
 // Specific API functions
 export async function checkRequiredConfigs() {
@@ -663,6 +621,86 @@ export async function getModelChatSnapshots(decisionId: number): Promise<ModelCh
   return response.json()
 }
 
+export interface ArenaStrategyDiagnostics {
+  account_id?: number | null
+  account_name?: string | null
+  exchange: string
+  generated_at: string
+  status: string
+  health_score: number
+  risk_level: string
+  summary: string
+  issues: string[]
+  optimizations: string[]
+  stats: {
+    decision_count: number
+    executed_count: number
+    operation_counts: Record<string, number>
+    hold_rate: number
+    hold_streak: number
+    realized_pnl: number
+    win_rate?: number | null
+    win_count: number
+    loss_count: number
+    symbols: string[]
+  }
+  by_symbol: Record<string, {
+    decisions: number
+    ops: Record<string, number>
+    realized_pnl: number
+  }>
+  trade_summaries: Array<{
+    id: number
+    time?: string | null
+    symbol?: string | null
+    operation: string
+    executed: boolean
+    target_portion: number
+    prev_portion: number
+    realized_pnl?: number | null
+    summary: string
+  }>
+  prompt_template?: {
+    id: number
+    key: string
+    name: string
+    description?: string | null
+    updated_at?: string | null
+  } | null
+  can_apply_prompt_fix: boolean
+  prompt_patch: string
+  proposed_prompt?: string | null
+}
+
+export async function getArenaStrategyDiagnostics(params?: { account_id?: number | null; exchange?: string; limit?: number }): Promise<ArenaStrategyDiagnostics> {
+  const search = new URLSearchParams()
+  if (params?.account_id) search.append('account_id', params.account_id.toString())
+  if (params?.exchange) search.append('exchange', params.exchange)
+  if (params?.limit) search.append('limit', params.limit.toString())
+  const query = search.toString()
+  const response = await apiRequest(`/arena/strategy-diagnostics${query ? `?${query}` : ''}`)
+  return response.json()
+}
+
+export interface ArenaPromptFixResponse {
+  success: boolean
+  account_id: number
+  exchange: string
+  source_prompt_template_id: number
+  new_prompt_template_id: number
+  new_prompt_template_name: string
+  binding_id: number
+  diagnostics: ArenaStrategyDiagnostics
+}
+
+export async function applyArenaStrategyPromptFix(payload: { account_id: number; exchange?: string; limit?: number }): Promise<ArenaPromptFixResponse> {
+  const response = await apiRequest('/arena/strategy-diagnostics/apply-prompt-fix', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  })
+  return response.json()
+}
+
 // Program Execution Log types and API
 export interface ProgramExecutionLog {
   id: number
@@ -1088,93 +1126,7 @@ export async function updateBinanceWatchlist(symbols: string[]): Promise<Binance
   return response.json()
 }
 
-export interface NewsSourceConfig {
-  type: string
-  adapter: string
-  url: string
-  enabled: boolean
-  interval_seconds: number
-  config?: Record<string, any>
-}
-
-export interface NewsSourcesResponse {
-  sources: NewsSourceConfig[]
-}
-
-export interface NewsSourcesUpdateResponse {
-  success: boolean
-  message: string
-  sources: NewsSourceConfig[]
-}
-
-export interface NewsSourcePreviewArticle {
-  title: string
-  summary: string
-  published_at?: string | null
-  source_domain?: string | null
-  source_url: string
-  validation_issues?: string[]
-}
-
-export interface NewsSourceValidationIssue {
-  source_url: string
-  issues: string[]
-}
-
-export interface NewsSourceValidationResult {
-  schema_match: boolean
-  valid_articles: number
-  invalid_articles: number
-  issues: NewsSourceValidationIssue[]
-}
-
-export interface TestNewsSourceResponse {
-  success: boolean
-  error?: string
-  total_fetched?: number
-  articles: NewsSourcePreviewArticle[]
-  validation?: NewsSourceValidationResult
-}
-
-export interface NewsStatsResponse {
-  total_articles: number
-  classified: number
-  with_sentiment: number
-  last_24h: {
-    by_domain: Record<string, number>
-    by_sentiment: Record<string, number>
-    total: number
-  }
-  latest_article_at?: string | null
-}
-
-export async function getNewsSources(): Promise<NewsSourcesResponse> {
-  const response = await apiRequest('/news/sources')
-  return response.json()
-}
-
-export async function updateNewsSources(sources: NewsSourceConfig[]): Promise<NewsSourcesUpdateResponse> {
-  const response = await apiRequest('/news/sources', {
-    method: 'PUT',
-    body: JSON.stringify({ sources }),
-  })
-  return response.json()
-}
-
-export async function testNewsSource(
-  payload: Pick<NewsSourceConfig, 'url' | 'adapter'> & { config?: Record<string, any> }
-): Promise<TestNewsSourceResponse> {
-  const response = await apiRequest('/news/sources/test', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
-  return response.json()
-}
-
-export async function getNewsStats(): Promise<NewsStatsResponse> {
-  const response = await apiRequest('/news/stats')
-  return response.json()
-}
+export * from './apiNews'
 
 // Legacy aliases for backward compatibility
 export type AIAccount = TradingAccount
@@ -1428,277 +1380,6 @@ export async function executeTraderImport(
   return response.json()
 }
 
-// ============================================================================
-// Prompt Backtest API
-// ============================================================================
+export * from './apiBacktest'
 
-export interface BacktestItemInput {
-  decision_log_id: number
-  modified_prompt: string
-}
-
-export interface ReplaceRule {
-  find: string
-  replace: string
-}
-
-export interface CreateBacktestTaskRequest {
-  account_id: number
-  name?: string
-  items: BacktestItemInput[]
-  replace_rules?: ReplaceRule[]
-}
-
-export interface BacktestTask {
-  id: number
-  account_id: number
-  name: string | null
-  status: string
-  total_count: number
-  completed_count: number
-  failed_count: number
-  created_at: string
-  started_at: string | null
-  finished_at: string | null
-}
-
-export interface BacktestResultItem {
-  id: number
-  original_decision_time: string | null
-  original_operation: string | null
-  original_symbol: string | null
-  original_target_portion: number | null
-  original_realized_pnl: number | null
-  new_operation: string | null
-  new_symbol: string | null
-  new_target_portion: number | null
-  decision_changed: boolean | null
-  change_type: string | null
-  status: string
-}
-
-export interface BacktestResultSummary {
-  total: number
-  completed: number
-  failed: number
-  changed: number
-  unchanged: number
-  avoided_loss_count: number
-  avoided_loss_amount: number
-  missed_profit_count: number
-  missed_profit_amount: number
-}
-
-export interface BacktestItemDetail {
-  id: number
-  original_operation: string | null
-  original_symbol: string | null
-  original_reasoning: string | null
-  original_decision_json: string | null
-  original_prompt_template_name: string | null
-  modified_prompt: string | null
-  new_operation: string | null
-  new_symbol: string | null
-  new_reasoning: string | null
-  new_decision_json: string | null
-  decision_changed: boolean | null
-  change_type: string | null
-  error_message: string | null
-}
-
-export async function createBacktestTask(request: CreateBacktestTaskRequest) {
-  const response = await apiRequest('/prompt-backtest/tasks', {
-    method: 'POST',
-    body: JSON.stringify(request)
-  })
-  return response.json()
-}
-
-export async function listBacktestTasks(accountId?: number, limit: number = 20) {
-  const params = new URLSearchParams()
-  if (accountId) params.append('account_id', String(accountId))
-  params.append('limit', String(limit))
-  const response = await apiRequest(`/prompt-backtest/tasks?${params}`)
-  return response.json() as Promise<{ tasks: BacktestTask[] }>
-}
-
-export async function getBacktestTaskStatus(taskId: number) {
-  const response = await apiRequest(`/prompt-backtest/tasks/${taskId}`)
-  return response.json() as Promise<BacktestTask>
-}
-
-export async function getBacktestTaskResults(taskId: number) {
-  const response = await apiRequest(`/prompt-backtest/tasks/${taskId}/results`)
-  return response.json() as Promise<{
-    task: BacktestTask
-    items: BacktestResultItem[]
-    summary: BacktestResultSummary
-  }>
-}
-
-export async function getBacktestItemDetail(itemId: number) {
-  const response = await apiRequest(`/prompt-backtest/items/${itemId}`)
-  return response.json() as Promise<BacktestItemDetail>
-}
-
-export async function deleteBacktestTask(taskId: number) {
-  const response = await apiRequest(`/prompt-backtest/tasks/${taskId}`, {
-    method: 'DELETE'
-  })
-  return response.json()
-}
-
-export async function retryBacktestTask(taskId: number) {
-  const response = await apiRequest(`/prompt-backtest/tasks/${taskId}/retry`, {
-    method: 'POST'
-  })
-  return response.json() as Promise<{
-    success: boolean
-    message: string
-    retry_count: number
-  }>
-}
-
-export interface BacktestTaskItemForImport {
-  id: number
-  modified_prompt: string
-  operation: string | null
-  symbol: string | null
-  reason: string | null
-  decision_time: string | null
-  realized_pnl: number | null
-}
-
-export async function getBacktestTaskItems(taskId: number) {
-  const response = await apiRequest(`/prompt-backtest/tasks/${taskId}/items`)
-  return response.json() as Promise<{
-    task_id: number
-    task_name: string
-    items: BacktestTaskItemForImport[]
-  }>
-}
-
-export interface MarketFlowSummaryItem {
-  symbol: string
-  exchange: string
-  window: string
-  start_time: number
-  end_time: number
-  latest_trade_timestamp?: number | null
-  total_buy_notional: number
-  total_sell_notional: number
-  net_inflow: number
-  buy_ratio: number
-  total_large_buy_notional: number
-  total_large_sell_notional: number
-  large_order_net: number
-  retail_net: number
-  large_buy_count: number
-  large_sell_count: number
-  open_interest_change_pct?: number | null
-  funding_rate_pct?: number | null
-}
-
-export interface MarketFlowSummaryResponse {
-  exchange: string
-  window: string
-  items: MarketFlowSummaryItem[]
-}
-
-export interface NewsArticle {
-  id: number
-  source_domain: string
-  source_url: string
-  title: string
-  summary?: string | null
-  published_at?: string | null
-  symbols: string[]
-  sentiment?: string | null
-  ai_summary?: string | null
-  relevance_score?: number | null
-  image_url?: string | null
-}
-
-export interface HyperAiInsightRequest {
-  context: Record<string, unknown>
-  selected_event?: Record<string, unknown> | null
-  lang?: string
-}
-
-export async function startHyperAiInsightAnalysis(payload: HyperAiInsightRequest) {
-  const response = await apiRequest('/hyper-ai/insight', {
-    method: 'POST',
-    body: JSON.stringify(payload),
-  })
-  return response.json() as Promise<{ task_id: string }>
-}
-
-export interface NewsArticleListResponse {
-  items: NewsArticle[]
-  total: number
-}
-
-export interface LargeOrderZoneItem {
-  time: number
-  large_buy_notional: number
-  large_sell_notional: number
-  large_order_net: number
-  large_buy_count: number
-  large_sell_count: number
-}
-
-export interface LargeOrderZoneResponse {
-  symbol: string
-  exchange: string
-  timeframe: string
-  items: LargeOrderZoneItem[]
-}
-
-export async function getMarketFlowSummary(params: {
-  symbols: string[]
-  exchange: 'hyperliquid' | 'binance'
-  window?: string
-}) {
-  const searchParams = new URLSearchParams()
-  searchParams.set('symbols', params.symbols.join(','))
-  searchParams.set('exchange', params.exchange)
-  searchParams.set('window', params.window || '1h')
-  const response = await apiRequest(`/market-flow/summary?${searchParams.toString()}`)
-  return response.json() as Promise<MarketFlowSummaryResponse>
-}
-
-export async function getNewsArticles(params: {
-  symbols?: string[]
-  hours?: number
-  limit?: number
-}) {
-  const searchParams = new URLSearchParams()
-  if (params.symbols?.length) {
-    searchParams.set('symbols', params.symbols.join(','))
-  }
-  if (params.hours) {
-    searchParams.set('hours', String(params.hours))
-  }
-  if (params.limit) {
-    searchParams.set('limit', String(params.limit))
-  }
-  const response = await apiRequest(`/news/articles?${searchParams.toString()}`)
-  return response.json() as Promise<NewsArticleListResponse>
-}
-
-export async function getLargeOrderZones(params: {
-  symbol: string
-  exchange: 'hyperliquid' | 'binance'
-  timeframe: string
-  startTime?: number
-  endTime?: number
-}) {
-  const searchParams = new URLSearchParams()
-  searchParams.set('symbol', params.symbol)
-  searchParams.set('exchange', params.exchange)
-  searchParams.set('timeframe', params.timeframe)
-  if (params.startTime) searchParams.set('start_time', String(params.startTime))
-  if (params.endTime) searchParams.set('end_time', String(params.endTime))
-  const response = await apiRequest(`/market-flow/large-order-zones?${searchParams.toString()}`)
-  return response.json() as Promise<LargeOrderZoneResponse>
-}
+export * from './apiMarketInsight'

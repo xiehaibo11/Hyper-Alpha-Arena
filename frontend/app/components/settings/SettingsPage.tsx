@@ -324,6 +324,46 @@ export default function SettingsPage() {
     })
   }
 
+  const selectVisibleHlSymbols = () => {
+    setHlError(null)
+    setHlSuccess(null)
+    setHlWatchlistSymbols((prev) => {
+      const next = [...prev]
+      const seen = new Set(next)
+      for (const item of filteredHlSymbols) {
+        const symbol = (item.symbol || item.name || '').toUpperCase()
+        if (!symbol || seen.has(symbol)) continue
+        if (next.length >= hlMaxSymbols) break
+        seen.add(symbol)
+        next.push(symbol)
+      }
+      if (next.length >= hlMaxSymbols && filteredHlSymbols.length > next.length) {
+        setHlError(t('settings.maxSymbolsReached', `Maximum ${hlMaxSymbols} symbols`))
+      }
+      return next
+    })
+  }
+
+  const selectVisibleBnSymbols = () => {
+    setBnError(null)
+    setBnSuccess(null)
+    setBnWatchlistSymbols((prev) => {
+      const next = [...prev]
+      const seen = new Set(next)
+      for (const item of filteredBnSymbols) {
+        const symbol = (item.symbol || item.name || '').toUpperCase()
+        if (!symbol || seen.has(symbol)) continue
+        if (next.length >= bnMaxSymbols) break
+        seen.add(symbol)
+        next.push(symbol)
+      }
+      if (next.length >= bnMaxSymbols && filteredBnSymbols.length > next.length) {
+        setBnError(t('settings.maxSymbolsReached', `Maximum ${bnMaxSymbols} symbols`))
+      }
+      return next
+    })
+  }
+
   const handleSaveWatchlist = async () => {
     setHlSaving(true)
     setHlError(null)
@@ -372,8 +412,8 @@ export default function SettingsPage() {
   const handleSaveRetention = async () => {
     if (!currentExchange) return
     const days = parseInt(retentionDays[currentExchange], 10)
-    if (isNaN(days) || days < 7 || days > 730) {
-      setRetentionError(t('settings.retentionRange', 'Must be between 7 and 730 days'))
+    if (isNaN(days) || days < 1 || days > 730) {
+      setRetentionError(t('settings.retentionRange', 'Must be between 1 and 730 days'))
       return
     }
     setRetentionSaving(true)
@@ -639,6 +679,14 @@ export default function SettingsPage() {
                         className="h-8 text-sm"
                       />
                     </div>
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={selectVisibleHlSymbols}>
+                        {t('settings.selectVisibleSymbols', 'Select visible')}
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setHlWatchlistSymbols([])}>
+                        {t('settings.clearSelection', 'Clear')}
+                      </Button>
+                    </div>
                     <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
                       {filteredHlSymbols.map((sym) => {
                         const symbolName = sym.name || sym.symbol || ''
@@ -698,6 +746,14 @@ export default function SettingsPage() {
                         onChange={(e) => setBnSearchQuery(e.target.value)}
                         className="h-8 text-sm"
                       />
+                    </div>
+                    <div className="mb-3 flex flex-wrap gap-2">
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={selectVisibleBnSymbols}>
+                        {t('settings.selectVisibleSymbols', 'Select visible')}
+                      </Button>
+                      <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setBnWatchlistSymbols([])}>
+                        {t('settings.clearSelection', 'Clear')}
+                      </Button>
                     </div>
                     <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto">
                       {filteredBnSymbols.map((sym) => {
@@ -790,7 +846,7 @@ export default function SettingsPage() {
                         value={retentionDays['hyperliquid'] || '365'}
                         onChange={(e) => setRetentionDays((prev) => ({ ...prev, hyperliquid: e.target.value }))}
                         className="w-24"
-                        min={7}
+                        min={1}
                         max={730}
                       />
                       <span className="text-sm text-muted-foreground">{t('settings.days', 'days')}</span>
@@ -801,7 +857,7 @@ export default function SettingsPage() {
                     {retentionError && <div className="text-red-500 text-sm mt-2">{retentionError}</div>}
                     {retentionSuccess && <div className="text-green-500 text-sm mt-2">{retentionSuccess}</div>}
                     <div className="text-xs text-muted-foreground mt-1">
-                      {t('settings.retentionHint', 'Data older than this will be automatically cleaned up (7-730 days)')}
+                      {t('settings.retentionHint', 'Data older than this will be archived to OSS then cleaned up locally (1-730 days)')}
                     </div>
                   </div>
                   {/* Hyperliquid Backfill Section */}
@@ -907,7 +963,7 @@ export default function SettingsPage() {
                         {t('settings.maxStorageEstimate', 'Max Storage Estimate')}
                       </div>
                       <div className="text-xl font-semibold">
-                        {(watchlistSymbols.length * parseInt(retentionDays['binance'] || '365', 10) * storageStats['binance'].estimated_per_symbol_per_day_mb).toFixed(1)} MB
+                        {(bnWatchlistSymbols.length * parseInt(retentionDays['binance'] || '365', 10) * storageStats['binance'].estimated_per_symbol_per_day_mb).toFixed(1)} MB
                       </div>
                     </div>
                   </div>
@@ -921,7 +977,7 @@ export default function SettingsPage() {
                         value={retentionDays['binance'] || '365'}
                         onChange={(e) => setRetentionDays((prev) => ({ ...prev, binance: e.target.value }))}
                         className="w-24"
-                        min={7}
+                        min={1}
                         max={730}
                       />
                       <span className="text-sm text-muted-foreground">{t('settings.days', 'days')}</span>
@@ -932,7 +988,7 @@ export default function SettingsPage() {
                     {retentionError && <div className="text-red-500 text-sm mt-2">{retentionError}</div>}
                     {retentionSuccess && <div className="text-green-500 text-sm mt-2">{retentionSuccess}</div>}
                     <div className="text-xs text-muted-foreground mt-1">
-                      {t('settings.retentionHint', 'Data older than this will be automatically cleaned up (7-730 days)')}
+                      {t('settings.retentionHint', 'Data older than this will be archived to OSS then cleaned up locally (1-730 days)')}
                     </div>
                   </div>
                   {/* Backfill Section */}

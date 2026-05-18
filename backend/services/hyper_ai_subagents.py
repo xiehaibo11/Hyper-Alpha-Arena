@@ -25,9 +25,11 @@ from typing import Dict, Any, Generator, Optional
 from sqlalchemy.orm import Session
 
 from services.ai_stream_service import format_sse_event
+from services.hyper_ai_all_agents import ALL_AI_COORDINATION_TOOL, execute_coordinate_all_ai
 
 # Human-readable names for sub-agents (used in progress events sent to frontend)
 SUBAGENT_DISPLAY_NAMES = {
+    "coordinate_all_ai": "All AI Coordinator",
     "call_prompt_ai": "Prompt AI",
     "call_program_ai": "Program AI",
     "call_signal_ai": "Signal AI",
@@ -40,6 +42,7 @@ logger = logging.getLogger(__name__)
 # Sub-agent tool definitions in OpenAI format
 # Note: Sub-agents inherit Hyper AI's LLM configuration, no account_id needed
 SUBAGENT_TOOLS = [
+    ALL_AI_COORDINATION_TOOL,
     {
         "type": "function",
         "function": {
@@ -493,6 +496,13 @@ def execute_subagent_tool(
         tool_result = yield from gen  # forwards progress events, gets result
     """
     try:
+        if tool_name == "coordinate_all_ai":
+            return (yield from execute_coordinate_all_ai(
+                db,
+                arguments=arguments,
+                user_id=user_id,
+            ))
+
         if tool_name == "call_prompt_ai":
             return (yield from execute_call_prompt_ai(
                 db,
@@ -533,4 +543,3 @@ def execute_subagent_tool(
     except Exception as e:
         logger.error(f"[execute_subagent_tool] Error executing {tool_name}: {e}")
         return json.dumps({"error": str(e)})
-

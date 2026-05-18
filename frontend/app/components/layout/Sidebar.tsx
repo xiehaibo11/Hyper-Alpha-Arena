@@ -144,7 +144,7 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
     { label: t('sidebar.factorLibrary', 'Factors'), page: 'factor-library', icon: FlaskConical },
     { label: t('sidebar.manualTrading', 'Manual Trading'), page: 'hyperliquid', icon: Coins },
     { label: t('sidebar.klines', 'K-Lines'), page: 'klines', icon: KLinesIcon },
-    { label: t('sidebar.premium', 'Premium'), page: 'premium-features', icon: PremiumIcon },
+    { label: t('sidebar.premium', 'Advanced'), page: 'premium-features', icon: PremiumIcon },
     { label: t('sidebar.systemLogs', 'System Logs'), page: 'system-logs', icon: FileText },
   ] as const
 

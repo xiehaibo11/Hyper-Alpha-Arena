@@ -3,6 +3,9 @@ import react from "@vitejs/plugin-react"
 import { defineConfig } from "vite"
 import pkg from "./package.json"
 
+const devApiTarget = process.env.VITE_DEV_API_TARGET || "http://127.0.0.1:5611"
+const devWsTarget = devApiTarget.replace(/^http/, "ws")
+
 export default defineConfig({
   define: {
     __APP_VERSION__: JSON.stringify(pkg.version),
@@ -23,11 +26,11 @@ export default defineConfig({
     allowedHosts: true,  // Allow all hosts for flexible deployment
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:8802',
+        target: devApiTarget,
         changeOrigin: true,
       },
       '/ws': {
-        target: 'ws://127.0.0.1:8802',
+        target: devWsTarget,
         changeOrigin: true,
         ws: true,
       },

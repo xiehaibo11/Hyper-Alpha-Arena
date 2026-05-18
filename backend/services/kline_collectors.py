@@ -145,15 +145,37 @@ class HyperliquidKlineCollector(BaseKlineCollector):
 
 
 class BinanceKlineCollector(BaseKlineCollector):
-    """Binance K线采集器 - 预留实现"""
+    """Binance K线采集器"""
 
     def __init__(self):
         super().__init__("binance")
+        from .exchanges.binance_adapter import BinanceAdapter
+        self.adapter = BinanceAdapter()
+
+    def _convert_kline(self, kline, period: str) -> KlineData:
+        """Convert unified Binance adapter data to the legacy KlineData shape."""
+        return KlineData(
+            exchange=self.exchange_id,
+            symbol=kline.symbol,
+            timestamp=int(kline.timestamp),
+            period=period,
+            open_price=float(kline.open_price),
+            high_price=float(kline.high_price),
+            low_price=float(kline.low_price),
+            close_price=float(kline.close_price),
+            volume=float(kline.volume),
+        )
 
     async def fetch_current_kline(self, symbol: str, period: str = "1m") -> Optional[KlineData]:
-        # TODO: 实现Binance API调用
-        self.logger.warning("Binance collector not implemented yet")
-        return None
+        """获取当前K线"""
+        try:
+            klines = self.adapter.fetch_klines(symbol, period, limit=1)
+            if not klines:
+                return None
+            return self._convert_kline(klines[-1], period)
+        except Exception as e:
+            self.logger.error(f"Failed to fetch Binance current kline for {symbol}/{period}: {e}")
+            return None
 
     async def fetch_historical_klines(
         self,
@@ -162,12 +184,99 @@ class BinanceKlineCollector(BaseKlineCollector):
         end_time: datetime,
         period: str = "1m"
     ) -> List[KlineData]:
-        # TODO: 实现Binance历史数据获取
-        self.logger.warning("Binance historical data not implemented yet")
-        return []
+        """获取历史K线数据"""
+        try:
+            start_ms = int(start_time.timestamp() * 1000)
+            end_ms = int(end_time.timestamp() * 1000)
+
+            klines = self.adapter.fetch_klines(
+                symbol,
+                period,
+                limit=1500,
+                start_time=start_ms,
+                end_time=end_ms,
+            )
+            return [self._convert_kline(kline, period) for kline in klines]
+        except Exception as e:
+            self.logger.error(f"Failed to fetch Binance historical klines for {symbol}/{period}: {e}")
+            return []
 
     def get_supported_symbols(self) -> List[str]:
-        return ["BTCUSDT", "ETHUSDT", "SOLUSDT"]  # 示例
+        """获取用户 Binance Watch List 中选择的交易对（内部格式）"""
+        try:
+            from .binance_symbol_service import get_selected_symbols
+            symbols = get_selected_symbols()
+            if symbols:
+                return symbols
+        except Exception as e:
+            self.logger.warning(f"Failed to get symbols from binance_symbol_service: {e}")
+
+        return ["BTC"]
+
+
+class OKXKlineCollector(BaseKlineCollector):
+    """OKX K-line collector."""
+
+    def __init__(self):
+        super().__init__("okx")
+        from .exchanges.okx_adapter import OKXAdapter
+        self.adapter = OKXAdapter()
+
+    def _convert_kline(self, kline, period: str) -> KlineData:
+        return KlineData(
+            exchange=self.exchange_id,
+            symbol=kline.symbol,
+            timestamp=int(kline.timestamp),
+            period=period,
+            open_price=float(kline.open_price),
+            high_price=float(kline.high_price),
+            low_price=float(kline.low_price),
+            close_price=float(kline.close_price),
+            volume=float(kline.volume),
+        )
+
+    async def fetch_current_kline(self, symbol: str, period: str = "1m") -> Optional[KlineData]:
+        try:
+            klines = self.adapter.fetch_klines(symbol, period, limit=1)
+            if not klines:
+                return None
+            return self._convert_kline(klines[-1], period)
+        except Exception as e:
+            self.logger.error(f"Failed to fetch OKX current kline for {symbol}/{period}: {e}")
+            return None
+
+    async def fetch_historical_klines(
+        self,
+        symbol: str,
+        start_time: datetime,
+        end_time: datetime,
+        period: str = "1m"
+    ) -> List[KlineData]:
+        try:
+            start_ms = int(start_time.timestamp() * 1000)
+            end_ms = int(end_time.timestamp() * 1000)
+            klines = self.adapter.fetch_klines(
+                symbol,
+                period,
+                limit=2000,
+                start_time=start_ms,
+                end_time=end_ms,
+            )
+            return [self._convert_kline(kline, period) for kline in klines]
+        except Exception as e:
+            self.logger.error(f"Failed to fetch OKX historical klines for {symbol}/{period}: {e}")
+            return []
+
+    def get_supported_symbols(self) -> List[str]:
+        try:
+            from .okx_symbol_service import get_selected_symbols
+            symbols = get_selected_symbols()
+            if symbols:
+                return symbols
+        except Exception as e:
+            self.logger.warning(f"Failed to get symbols from okx_symbol_service: {e}")
+
+        return ["BTC"]
 
 
 class AsterKlineCollector(BaseKlineCollector):
@@ -202,6 +311,7 @@ class ExchangeDataSourceFactory:
     _collectors = {
         "hyperliquid": HyperliquidKlineCollector,
         "binance": BinanceKlineCollector,
+        "okx": OKXKlineCollector,
         "aster": AsterKlineCollector
     }
 

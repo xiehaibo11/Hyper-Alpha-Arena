@@ -3,6 +3,7 @@ K线实时采集服务 - 每分钟定时采集当前K线数据
 """
 
 import asyncio
+import os
 from datetime import datetime, timedelta
 from typing import List, Set
 import logging
@@ -10,6 +11,18 @@ import logging
 from .kline_data_service import kline_service
 
 logger = logging.getLogger(__name__)
+
+
+def _int_env(name: str, default: int) -> int:
+    try:
+        return max(1, int(os.getenv(name, str(default))))
+    except ValueError:
+        return default
+
+
+def _csv_env(name: str, default: str) -> List[str]:
+    raw = os.getenv(name, default)
+    return [item.strip().upper() for item in raw.split(",") if item.strip()]
 
 
 class KlineRealtimeCollector:
@@ -25,6 +38,9 @@ class KlineRealtimeCollector:
 
         # 采集的K线周期 (1m到1h)
         self.periods = ["1m", "3m", "5m", "15m", "30m", "1h"]
+        self.primary_symbols = _csv_env("KLINE_PRIMARY_SYMBOLS", "BTC,ETH,SOL,BNB")
+        self.non_primary_batch_size = _int_env("KLINE_NON_PRIMARY_BATCH_SIZE", 20)
+        self._rotation_cursor = 0
 
     async def start(self):
         """启动实时采集服务"""
@@ -123,12 +139,22 @@ class KlineRealtimeCollector:
         if not symbols:
             symbols = self.default_symbols
 
-        # 并发采集所有交易对的所有周期
+        primary_set = set(self.primary_symbols)
+        primary_symbols = [symbol for symbol in self.primary_symbols if symbol in symbols]
+        secondary_symbols = [symbol for symbol in symbols if symbol not in primary_set]
+        secondary_batch = self._next_secondary_batch(secondary_symbols)
+
+        # 主交易币种采集全周期；其他监控币种只轮询 1m，避免大 watchlist
+        # 触发交易所限流。
+        collection_plan = [(symbol, self.periods) for symbol in primary_symbols]
+        collection_plan.extend((symbol, ["1m"]) for symbol in secondary_batch)
+
+        # 并发采集计划内交易对/周期
         tasks = []
         task_info = []  # 记录每个任务对应的symbol和period
 
-        for symbol in symbols:
-            for period in self.periods:
+        for symbol, periods in collection_plan:
+            for period in periods:
                 task = asyncio.create_task(
                     self._collect_symbol_kline(symbol, period),
                     name=f"collect_{symbol}_{period}"
@@ -153,7 +179,24 @@ class KlineRealtimeCollector:
             else:
                 error_count += 1
 
-        logger.info(f"Collection completed: {success_count} success, {error_count} errors (total: {len(tasks)} tasks)")
+        logger.info(
+            "Collection completed: %s success, %s errors (total: %s tasks, symbols=%s/%s)",
+            success_count,
+            error_count,
+            len(tasks),
+            len(primary_symbols) + len(secondary_batch),
+            len(symbols),
+        )
+
+    def _next_secondary_batch(self, symbols: List[str]) -> List[str]:
+        if not symbols:
+            return []
+        cursor = self._rotation_cursor % len(symbols)
+        batch = []
+        for offset in range(min(self.non_primary_batch_size, len(symbols))):
+            batch.append(symbols[(cursor + offset) % len(symbols)])
+        self._rotation_cursor = (cursor + len(batch)) % len(symbols)
+        return batch
 
     async def _collect_symbol_kline(self, symbol: str, period: str = "1m") -> bool:
         """采集单个交易对指定周期的K线数据"""

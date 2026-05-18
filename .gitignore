@@ -70,6 +70,15 @@ web_modules/
 .env.*
 !.env.example
 
+# Local secret notes
+配置.md
+GIT秘钥.md
+代理服务VPN订阅.md
+
+# Local deployment secrets
+deploy/certs/
+frontend/public/vpn/
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache
@@ -312,7 +321,6 @@ backend/.DS_Store
 
 # AI Programming Assistants
 CLAUDE.md
-AGENTS.md
 .claude/
 .cursor/
 *.db

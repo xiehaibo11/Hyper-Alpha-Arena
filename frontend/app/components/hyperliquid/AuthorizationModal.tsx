@@ -133,7 +133,7 @@ export default function AuthorizationModal({
             </Button>
           </div>
           <p className="text-sm text-muted-foreground mt-2">
-            A service fee (only 0.03%) per trade supports long-term project development and maintenance. Subscribe to Premium for FREE service fee.
+            This self-hosted server has service fees disabled. You can authorize trading without a subscription.
           </p>
         </div>
 

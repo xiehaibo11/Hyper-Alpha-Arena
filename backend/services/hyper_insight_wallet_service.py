@@ -175,6 +175,7 @@ class HyperInsightWalletService:
     def get_status_snapshot(self) -> dict[str, Any]:
         with SessionLocal() as db:
             enabled = self._get_config_value(db, CONFIG_ENABLED) == "true"
+            has_access_token = bool(self._get_config_value(db, CONFIG_ACCESS_TOKEN))
             token_synced_at = self._get_config_value(db, CONFIG_TOKEN_SYNCED_AT)
             active_wallet_pool_count = self._count_enabled_wallet_pools(db)
         snapshot = dict(self._state)
@@ -182,6 +183,11 @@ class HyperInsightWalletService:
         snapshot["token_synced_at"] = token_synced_at
         snapshot["active_wallet_pool_count"] = active_wallet_pool_count
         snapshot["synced_addresses"] = list(snapshot.get("synced_addresses") or [])
+        if enabled and snapshot.get("status") == "disabled":
+            snapshot["status"] = "configured" if has_access_token else "missing_token"
+            snapshot["last_error"] = None if has_access_token else "Hyper Insight wallet tracking is enabled but no access token is synced."
+        if not enabled:
+            snapshot["status"] = "disabled"
         return snapshot
 
     def _set_config_value(self, db, key: str, value: str, description: str | None = None) -> None:
