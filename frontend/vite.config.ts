@@ -79,7 +79,10 @@ function manualChunks(id: string) {
     if (packageName === "i18next" || packageName === "react-i18next" || packageName.startsWith("i18next-")) {
       return "vendor-i18n"
     }
-    if (["dayjs", "js-cookie", "react-hot-toast"].includes(packageName)) {
+    if (packageName === "react-hot-toast" || packageName === "goober") {
+      return "vendor-hot-toast"
+    }
+    if (["dayjs", "js-cookie"].includes(packageName)) {
       return "vendor-app-utils"
     }
     return "vendor-core"
