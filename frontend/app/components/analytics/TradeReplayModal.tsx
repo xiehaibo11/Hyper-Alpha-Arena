@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { formatChartTime } from '@/lib/dateTime'
 import { TradingAccount, getAccounts } from '@/lib/api'
+import { pollAiStream } from '@/lib/pollAiStream'
 
 const API_BASE = '/api/analytics'
 
@@ -575,7 +576,6 @@ Trade #${tradeData.trade.id} ${tradeData.trade.symbol}:
         const taskData = await response.json()
         const taskId = taskData.task_id
 
-        const { pollAiStream } = await import('@/lib/pollAiStream')
         await pollAiStream(taskId, {
           onChunk: (chunk) => {
             const eventType = chunk.event_type

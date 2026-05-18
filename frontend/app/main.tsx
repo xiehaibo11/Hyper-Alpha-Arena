@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react'
 import ReactDOM from 'react-dom/client'
+import Cookies from 'js-cookie'
 import './index.css'
 import './i18n' // Initialize i18n
 import { Toaster, toast } from 'react-hot-toast'
@@ -47,6 +48,7 @@ import { SplashScreen, HyperAiOnboarding, HyperAiPage } from '@/components/hyper
 import ArenaAssets from '@/components/arena/ArenaAssets'
 // Remove CallbackPage import - handle inline
 import { AIDecision, getAccounts, checkMainnetAccounts, approveBuilder, type UnauthorizedAccount } from '@/lib/api'
+import { decodeArenaSession, exchangeCodeForToken, getUserInfo } from '@/lib/auth'
 import { checkWalletUpgradeNeeded } from '@/lib/hyperliquidApi'
 import { AuthorizationModal, AgentWalletUpgradeModal } from '@/components/hyperliquid'
 import { ArenaDataProvider } from '@/contexts/ArenaDataContext'
@@ -203,9 +205,6 @@ function App() {
           const urlParams = new URLSearchParams(window.location.search)
           const sessionParam = urlParams.get('session')
 
-          const { decodeArenaSession, exchangeCodeForToken, getUserInfo } = await import('@/lib/auth')
-          const Cookies = await import('js-cookie')
-
           if (sessionParam) {
             const session = decodeArenaSession(sessionParam)
             if (!session || !session.token.access_token) {
@@ -215,8 +214,8 @@ function App() {
               return
             }
 
-            Cookies.default.set('arena_token', session.token.access_token, { expires: 7 })
-            Cookies.default.set('arena_user', JSON.stringify(session.user), { expires: 7 })
+            Cookies.set('arena_token', session.token.access_token, { expires: 7 })
+            Cookies.set('arena_user', JSON.stringify(session.user), { expires: 7 })
             setAuthUser(session.user)
             toast.success('Login successful!')
             window.location.href = '/'
@@ -239,14 +238,14 @@ function App() {
               }
 
               // Save token and user data
-              Cookies.default.set('arena_token', tokenParam, { expires: 7 })
-              Cookies.default.set('arena_user', JSON.stringify(userData), { expires: 7 })
+              Cookies.set('arena_token', tokenParam, { expires: 7 })
+              Cookies.set('arena_user', JSON.stringify(userData), { expires: 7 })
 
               // Save refresh token if provided
               const refreshTokenParam = urlParams.get('refresh_token')
               if (refreshTokenParam) {
                 console.log('[Callback] Saving refresh_token to cookie, length:', refreshTokenParam.length)
-                Cookies.default.set('arena_refresh_token', refreshTokenParam, { expires: 30 })
+                Cookies.set('arena_refresh_token', refreshTokenParam, { expires: 30 })
               }
 
               setAuthUser(userData)
@@ -287,8 +286,8 @@ function App() {
             return
           }
 
-          Cookies.default.set('arena_token', accessToken, { expires: 7 })
-          Cookies.default.set('arena_user', JSON.stringify(userData), { expires: 7 })
+          Cookies.set('arena_token', accessToken, { expires: 7 })
+          Cookies.set('arena_user', JSON.stringify(userData), { expires: 7 })
           setAuthUser(userData)
           toast.success('Login successful!')
           window.location.href = '/'
