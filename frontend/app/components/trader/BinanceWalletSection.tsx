@@ -10,7 +10,7 @@ import toast from 'react-hot-toast'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Wallet, Eye, EyeOff, CheckCircle, RefreshCw, Trash2 } from 'lucide-react'
+import { Wallet, Eye, EyeOff, CheckCircle, RefreshCw, Trash2, AlertTriangle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import RebateIneligibleModal from '@/components/binance/RebateIneligibleModal'
 
@@ -26,6 +26,11 @@ interface BinanceWalletData {
   apiKeyMasked?: string
   maxLeverage: number
   defaultLeverage: number
+  positionMode?: {
+    mode: string
+    supported: boolean
+    message?: string
+  }
   balance?: {
     total_equity: number
     available_balance: number
@@ -89,6 +94,18 @@ export default function BinanceWalletSection({
     loadWalletInfo()
   }, [accountId])
 
+  const loadPositionMode = async (environment: 'testnet' | 'mainnet') => {
+    const res = await fetch(`${API_BASE}/accounts/${accountId}/position-mode?environment=${environment}`)
+    if (!res.ok) return undefined
+
+    const data = await res.json()
+    return {
+      mode: data.mode || 'unknown',
+      supported: Boolean(data.supported),
+      message: data.message,
+    }
+  }
+
   const loadWalletInfo = async () => {
     try {
       setLoadingConfig(true)
@@ -122,6 +139,14 @@ export default function BinanceWalletSection({
         } catch (e) {
           console.error('Failed to load testnet balance:', e)
         }
+        try {
+          const positionMode = await loadPositionMode('testnet')
+          if (positionMode) {
+            setTestnetWallet(prev => prev ? { ...prev, positionMode } : null)
+          }
+        } catch (e) {
+          console.error('Failed to load testnet position mode:', e)
+        }
       } else {
         setTestnetWallet(null)
       }
@@ -145,6 +170,14 @@ export default function BinanceWalletSection({
           }
         } catch (e) {
           console.error('Failed to load mainnet balance:', e)
+        }
+        try {
+          const positionMode = await loadPositionMode('mainnet')
+          if (positionMode) {
+            setMainnetWallet(prev => prev ? { ...prev, positionMode } : null)
+          }
+        } catch (e) {
+          console.error('Failed to load mainnet position mode:', e)
         }
         // Load daily quota for mainnet
         try {
@@ -258,12 +291,17 @@ export default function BinanceWalletSection({
       const res = await fetch(`${API_BASE}/accounts/${accountId}/balance?environment=${environment}`)
       if (res.ok) {
         const data = await res.json()
-        toast.success(`✅ Connected! Balance: $${data.total_equity?.toFixed(2) || '0.00'}`)
+        const positionMode = await loadPositionMode(environment)
+        if (positionMode && !positionMode.supported) {
+          toast.error(positionMode.message || 'Binance Hedge Mode is not supported')
+        } else {
+          toast.success(`✅ Connected! Balance: $${data.total_equity?.toFixed(2) || '0.00'}`)
+        }
         // Update wallet balance
         if (environment === 'testnet' && testnetWallet) {
-          setTestnetWallet({ ...testnetWallet, balance: data })
+          setTestnetWallet({ ...testnetWallet, balance: data, positionMode })
         } else if (environment === 'mainnet' && mainnetWallet) {
-          setMainnetWallet({ ...mainnetWallet, balance: data })
+          setMainnetWallet({ ...mainnetWallet, balance: data, positionMode })
         }
       } else {
         const err = await res.json()
@@ -388,6 +426,25 @@ export default function BinanceWalletSection({
                 <CheckCircle className="h-4 w-4 text-green-600 flex-shrink-0" />
               </div>
             </div>
+
+            {wallet.positionMode && (
+              <div className={`flex items-start gap-2 rounded border p-2 text-xs ${
+                wallet.positionMode.supported
+                  ? 'border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-200'
+                  : 'border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-900/20 dark:text-red-200'
+              }`}>
+                {wallet.positionMode.supported ? (
+                  <CheckCircle className="mt-0.5 h-3 w-3 flex-shrink-0" />
+                ) : (
+                  <AlertTriangle className="mt-0.5 h-3 w-3 flex-shrink-0" />
+                )}
+                <span>
+                  {wallet.positionMode.supported
+                    ? 'Position Mode: One-way'
+                    : wallet.positionMode.message || 'Position Mode: Hedge is not supported'}
+                </span>
+              </div>
+            )}
 
             {wallet.balance && (
               <div className="grid grid-cols-3 gap-2 text-xs">
