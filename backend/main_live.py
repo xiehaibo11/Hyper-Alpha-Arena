@@ -12,10 +12,16 @@ logger = logging.getLogger(__name__)
 def include_live_routes() -> None:
     try:
         from api.okx_routes import router as okx_router
+        from api.manual_trading_routes import router as manual_trading_router
+        from api.signal_live_routes import router as signal_live_router
+        from api.vpn_subscription_routes import router as vpn_subscription_router
 
         app.include_router(okx_router)
+        app.include_router(manual_trading_router)
+        app.include_router(signal_live_router)
+        app.include_router(vpn_subscription_router)
         move_spa_fallback_last()
-        logger.info("[LiveRoutes] OKX routes registered")
+        logger.info("[LiveRoutes] OKX, manual trading, signal live, and VPN routes registered")
     except Exception as exc:
         logger.error("[LiveRoutes] Failed to register OKX routes: %s", exc, exc_info=True)
         raise

@@ -231,6 +231,7 @@ export default function HyperliquidView({ wsRef, refreshKey = 0, onPageChange }:
       <div className="hidden md:flex flex-col min-h-0 w-full max-w-[600px] justify-self-end">
         <div className="flex-1 min-h-0 w-full border border-border rounded-lg bg-card shadow-sm px-4 py-3 flex flex-col">
           <AlphaArenaFeed
+            autoRefreshInterval={30_000}
             wsRef={wsRef}
             selectedAccount={selectedAccount}
             onSelectedAccountChange={setSelectedAccount}

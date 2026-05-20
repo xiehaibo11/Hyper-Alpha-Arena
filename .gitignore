@@ -73,11 +73,14 @@ web_modules/
 # Local secret notes
 配置.md
 GIT秘钥.md
+GIT.md
 代理服务VPN订阅.md
+币安.md
 
 # Local deployment secrets
 deploy/certs/
 frontend/public/vpn/
+backend/static/vpn/
 
 # parcel-bundler cache (https://parceljs.org/)
 .cache

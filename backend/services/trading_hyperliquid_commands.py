@@ -5,11 +5,8 @@ from typing import Any, Dict, Iterable, Optional
 
 from database.connection import SessionLocal
 from database.models import Account
-from services.ai_decision_service import (
-    call_ai_for_decision,
-    save_ai_decision,
-    save_ai_diagnostic_decision,
-)
+from services.ai_decision_logging import save_ai_decision, save_ai_diagnostic_decision
+from services.ai_decision_service import call_ai_for_decision
 from services.hyperliquid_symbol_service import (
     get_selected_symbols as get_hyperliquid_selected_symbols,
     get_available_symbol_map as get_hyperliquid_symbol_map,

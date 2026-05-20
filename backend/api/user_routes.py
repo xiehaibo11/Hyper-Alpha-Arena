@@ -11,7 +11,7 @@ from database.connection import SessionLocal
 from database.models import User, UserExchangeConfig, UserSubscription
 from repositories.user_repo import (
     create_user, get_user, get_user_by_username,
-    update_user, create_auth_session, verify_auth_session
+    update_user, create_auth_session, verify_auth_session, verify_user_password
 )
 from datetime import datetime
 from pydantic import BaseModel
@@ -67,10 +67,8 @@ async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=UserAuthResponse)
 async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
     try:
-        # For now, just verify username exists and create session
-        # Password verification can be implemented later
         user = get_user_by_username(db, login_data.username)
-        if not user:
+        if not user or not verify_user_password(db, user.id, login_data.password):
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         # Create auth session

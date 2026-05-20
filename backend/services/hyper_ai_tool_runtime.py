@@ -10,6 +10,8 @@ import re
 from dataclasses import dataclass
 from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
+from services.ai_exchange_query_tools import EXCHANGE_QUERY_TOOLS
+from services.binance_full_api_tools import BINANCE_FULL_API_TOOLS
 from services.hyper_ai_subagents import SUBAGENT_TOOLS
 from services.hyper_ai_tool_definitions import EXTERNAL_TOOLS, SKILL_TOOLS
 from services.hyper_ai_tool_defs_factor import FACTOR_TOOLS
@@ -48,6 +50,11 @@ READONLY_TOOL_NAMES: Set[str] = {
     "query_factors",
     "evaluate_factor",
     "get_factor_functions",
+    "get_exchange_public_data",
+    "list_exchange_instruments",
+    "get_exchange_account_data",
+    "query_binance_api",
+    "get_binance_klines",
     "web_search",
     "fetch_url",
     "load_skill",
@@ -128,6 +135,8 @@ class ToolValidationResult:
 def _definition_groups() -> List[Tuple[str, List[Dict[str, Any]]]]:
     return [
         ("read", READ_ONLY_TOOLS),
+        ("exchange", EXCHANGE_QUERY_TOOLS),
+        ("binance", BINANCE_FULL_API_TOOLS),
         ("write", WRITE_TOOLS),
         ("factor", FACTOR_TOOLS),
         ("external", EXTERNAL_TOOLS),

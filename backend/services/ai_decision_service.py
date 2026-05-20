@@ -2218,6 +2218,14 @@ def call_ai_for_decision(
     except Exception as exc:  # pragma: no cover - fallback rendering
         logger.error("Failed to render prompt template '%s': %s", template.key, exc)
         prompt = template.template_text
+    from services.ai_decision_runtime_market_snapshot import append_runtime_market_snapshot
+    prompt = append_runtime_market_snapshot(
+        prompt,
+        db,
+        symbols=symbol_order,
+        exchange=exchange,
+        environment=global_environment,
+    )
     if "output_format" not in validation_result.variables:
         prompt = f"{prompt.rstrip()}\n\nRequired output format:\n{context['output_format']}"
 

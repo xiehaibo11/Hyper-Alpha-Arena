@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ChevronDown, Loader2 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -22,6 +22,7 @@ import { getModelLogo } from '@/components/portfolio/logoAssets'
 import PositionsSection from './MobilePositionsSection'
 import TradesSection from './MobileTradesSection'
 import ExchangeIcon from '@/components/exchange/ExchangeIcon'
+import { useLiveArenaPositions } from '@/components/portfolio/useLiveArenaPositions'
 import { ExchangeId, EXCHANGE_DISPLAY_NAMES } from '@/lib/types/exchange'
 
 export default function MobileDashboard() {
@@ -121,9 +122,18 @@ export default function MobileDashboard() {
 
   const { accountId: selectedAccountId, exchange: selectedExchange } = parseKey(selectedKey)
 
-  const filteredPositions = selectedKey === 'all'
-    ? positions
-    : positions.filter(p => p.account_id === selectedAccountId && (p.exchange || 'hyperliquid') === selectedExchange)
+  const filteredPositions = useMemo(
+    () => selectedKey === 'all'
+      ? positions
+      : positions.filter(p => p.account_id === selectedAccountId && (p.exchange || 'hyperliquid') === selectedExchange),
+    [positions, selectedAccountId, selectedExchange, selectedKey],
+  )
+
+  const liveFilteredPositions = useLiveArenaPositions({
+    positions: filteredPositions,
+    selectedAccount: selectedKey === 'all' ? 'all' : selectedAccountId,
+    enabled: !loading,
+  })
 
   const filteredTrades = selectedKey === 'all'
     ? trades
@@ -181,20 +191,20 @@ export default function MobileDashboard() {
             <div className="flex items-center justify-center py-4">
               <Loader2 className="h-5 w-5 animate-spin" />
             </div>
-          ) : filteredPositions.length === 0 ? (
+          ) : liveFilteredPositions.length === 0 ? (
             <div className="text-xs text-muted-foreground text-center py-4">
               {t('feed.noAccounts', 'No accounts found')}
             </div>
           ) : (
             <div className="space-y-2">
-              {filteredPositions.map(account => (
+              {liveFilteredPositions.map(account => (
                 <AccountSummaryCard key={`${account.account_id}:${account.exchange || 'hyperliquid'}`} account={account} />
               ))}
             </div>
           )}
 
           {/* Positions Section */}
-          <PositionsSection positions={filteredPositions} selectedAccount={selectedKey === 'all' ? 'all' : selectedAccountId!} loading={loading} />
+          <PositionsSection positions={liveFilteredPositions} selectedAccount={selectedKey === 'all' ? 'all' : selectedAccountId!} loading={loading} />
 
           {/* Trades Section */}
           <TradesSection

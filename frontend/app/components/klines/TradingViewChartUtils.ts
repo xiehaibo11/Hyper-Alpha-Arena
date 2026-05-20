@@ -5,7 +5,7 @@ export type ChartType = 'candlestick' | 'line' | 'area'
 export interface TradingViewChartProps {
   symbol: string
   period: string
-  exchange?: 'hyperliquid' | 'binance'
+  exchange?: 'hyperliquid' | 'binance' | 'okx'
   chartType: ChartType
   selectedIndicators: string[]
   selectedFlowIndicators?: string[]

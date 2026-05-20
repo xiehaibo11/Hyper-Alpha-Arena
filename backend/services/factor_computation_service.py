@@ -7,11 +7,14 @@ Supports both Hyperliquid and Binance exchanges.
 """
 
 import logging
+import threading
 import time
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Dict
 
 from sqlalchemy.orm import Session
 from sqlalchemy import text
+from apscheduler.triggers.interval import IntervalTrigger
 
 from database.connection import SessionLocal
 from database.models import FactorValue
@@ -21,6 +24,7 @@ from services.technical_indicators import calculate_indicators
 from services.scheduler import task_scheduler
 
 logger = logging.getLogger(__name__)
+AUTO_COMPUTE_INTERVAL_SECONDS = 15 * 60
 
 
 class FactorComputationService:
@@ -28,6 +32,7 @@ class FactorComputationService:
         self._running = False
         self._last_compute_time: Dict[str, float] = {}
         self._progress: Dict = {"status": "idle"}
+        self._compute_lock = threading.Lock()
 
     # ── public API ──
 
@@ -36,12 +41,19 @@ class FactorComputationService:
         if self._running:
             return
         self._running = True
-        task_scheduler.add_interval_task(
-            task_func=self._run_all,
-            interval_seconds=3600,
-            task_id="factor_computation_1h",
+        if not task_scheduler.is_running():
+            task_scheduler.start()
+        task_scheduler.scheduler.add_job(
+            func=self._run_all,
+            trigger=IntervalTrigger(seconds=AUTO_COMPUTE_INTERVAL_SECONDS),
+            id="factor_computation_15m",
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+            misfire_grace_time=60,
+            next_run_time=datetime.now(timezone.utc) + timedelta(seconds=30),
         )
-        print("[FactorEngine] Scheduled factor computation (1h)", flush=True)
+        print("[FactorEngine] Scheduled factor value computation (15m)", flush=True)
 
     def stop(self):
         self._running = False
@@ -62,50 +74,56 @@ class FactorComputationService:
 
     def compute_now(self, exchange: str = "hyperliquid", period: str = "1h"):
         """Manual trigger: compute factors for one exchange immediately."""
+        if not self._compute_lock.acquire(blocking=False):
+            return {"computed": 0, "exchange": exchange, "status": "already_running"}
         db: Session = SessionLocal()
         try:
-            symbols = self._get_symbols_for_exchange(db, exchange)
-            if not symbols:
-                self._progress = {"status": "idle"}
-                return {"computed": 0, "exchange": exchange}
-            total = len(symbols)
-            self._progress = {
-                "status": "running", "phase": "values",
-                "completed": 0, "total": total, "current_symbol": "",
-            }
-            count = 0
-            for i, symbol in enumerate(symbols):
-                self._progress["current_symbol"] = symbol
-                self._progress["completed"] = i
-                try:
-                    self._compute_for_symbol(db, symbol, period, exchange)
-                    count += 1
-                except Exception as e:
-                    logger.warning(f"[FactorEngine] {exchange}/{symbol} err: {e}")
-            self._progress = {"status": "idle"}
-            self._last_compute_time[exchange] = time.time()
-            return {"computed": count, "exchange": exchange}
+            return self._compute_values_for_exchange(db, exchange, period)
         finally:
             db.close()
+            self._compute_lock.release()
 
     # ── internal ──
 
     def _run_all(self):
-        """Compute factors for every active symbol on all exchanges."""
+        """Compute factor values for all active exchanges."""
+        if not self._compute_lock.acquire(blocking=False):
+            logger.info("[FactorEngine] Skipping automatic run; computation already running")
+            return {"status": "already_running"}
         db: Session = SessionLocal()
         try:
+            summary = {}
             for exchange in ["hyperliquid", "binance", "okx"]:
-                symbols = self._get_symbols_for_exchange(db, exchange)
-                if not symbols:
-                    continue
-                for symbol in symbols:
-                    try:
-                        self._compute_for_symbol(db, symbol, "1h", exchange)
-                    except Exception as e:
-                        logger.warning(f"[FactorEngine] {exchange}/{symbol}/1h: {e}")
-                self._last_compute_time[exchange] = time.time()
+                val_result = self._compute_values_for_exchange(db, exchange, "1h")
+                summary[exchange] = {"values": val_result.get("computed", 0)}
+            logger.info("[FactorEngine] Automatic value compute complete: %s", summary)
+            return {"status": "done", "summary": summary}
         finally:
             db.close()
+            self._compute_lock.release()
+
+    def _compute_values_for_exchange(self, db: Session, exchange: str, period: str):
+        symbols = self._get_symbols_for_exchange(db, exchange)
+        if not symbols:
+            self._progress = {"status": "idle"}
+            return {"computed": 0, "exchange": exchange}
+        total = len(symbols)
+        self._progress = {
+            "status": "running", "phase": "values",
+            "completed": 0, "total": total, "current_symbol": "",
+        }
+        count = 0
+        for i, symbol in enumerate(symbols):
+            self._progress["current_symbol"] = symbol
+            self._progress["completed"] = i
+            try:
+                self._compute_for_symbol(db, symbol, period, exchange)
+                count += 1
+            except Exception as e:
+                logger.warning(f"[FactorEngine] {exchange}/{symbol} err: {e}")
+        self._progress = {"status": "idle"}
+        self._last_compute_time[exchange] = time.time()
+        return {"computed": count, "exchange": exchange}
 
     def _get_symbols_for_exchange(self, db: Session, exchange: str) -> List[str]:
         """Get watchlist symbols for the given exchange."""
@@ -233,7 +251,35 @@ class FactorComputationService:
     def _extract_microstructure(self, factor_def, db, symbol, period, exchange):
         """Get value from market flow indicators."""
         try:
-            from services.market_flow_indicators import get_indicator_value
+            from services.market_flow_indicators import (
+                get_flow_indicators_for_prompt,
+                get_indicator_value,
+            )
+            factor_name = factor_def.get("name")
+            if factor_name == "CVD_RATIO":
+                flow = get_flow_indicators_for_prompt(
+                    db, symbol, period, ["CVD", "TAKER"], exchange=exchange,
+                )
+                cvd = (flow.get("CVD") or {}).get("current")
+                taker = flow.get("TAKER") or {}
+                total = float(taker.get("buy") or 0) + float(taker.get("sell") or 0)
+                return float(cvd) / total if cvd is not None and total > 0 else None
+
+            if factor_name == "TAKER_BUY_RATIO":
+                taker = get_flow_indicators_for_prompt(
+                    db, symbol, period, ["TAKER"], exchange=exchange,
+                ).get("TAKER") or {}
+                buy = float(taker.get("buy") or 0)
+                sell = float(taker.get("sell") or 0)
+                total = buy + sell
+                return buy / total if total > 0 else None
+
+            if factor_name == "FUNDING_RATE":
+                funding = get_flow_indicators_for_prompt(
+                    db, symbol, period, ["FUNDING"], exchange=exchange,
+                ).get("FUNDING") or {}
+                return funding.get("current")
+
             return get_indicator_value(
                 db, symbol, factor_def["indicator_key"], period, exchange=exchange,
             )

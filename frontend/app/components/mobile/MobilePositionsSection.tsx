@@ -1,7 +1,9 @@
+import { useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Loader2 } from 'lucide-react'
 import { ArenaPositionsAccount } from '@/lib/api'
 import { getModelLogo } from '@/components/portfolio/logoAssets'
+import ManualClosePositionControl, { type ManualClosePositionOption } from '@/components/portfolio/ManualClosePositionControl'
 
 interface PositionsSectionProps {
   positions: ArenaPositionsAccount[]
@@ -11,10 +13,28 @@ interface PositionsSectionProps {
 
 export default function PositionsSection({ positions, selectedAccount, loading }: PositionsSectionProps) {
   const { t } = useTranslation()
+  const [closedKeys, setClosedKeys] = useState<string[]>([])
 
-  const allPositions = positions.flatMap(account =>
+  const visibleAccounts = useMemo(
+    () => positions
+      .map(account => ({
+        ...account,
+        positions: account.positions.filter(pos =>
+          !closedKeys.includes(`${account.account_id}:${account.exchange || 'hyperliquid'}:${pos.symbol}:${pos.quantity}`)
+        )
+      }))
+      .filter(account => account.positions.length > 0),
+    [positions, closedKeys]
+  )
+
+  const allPositions = visibleAccounts.flatMap(account =>
     account.positions.map(pos => ({ ...pos, account_name: account.account_name, account_id: account.account_id }))
   )
+
+  const handleClosed = (closed: ManualClosePositionOption) => {
+    const key = `${closed.accountId}:binance:${closed.symbol}:${closed.quantity}`
+    setClosedKeys(prev => prev.includes(key) ? prev : [...prev, key])
+  }
 
   return (
     <div className="space-y-2">
@@ -23,6 +43,9 @@ export default function PositionsSection({ positions, selectedAccount, loading }
           {t('feed.positions', 'Positions')} ({allPositions.length})
         </span>
       </div>
+      {!loading && allPositions.length > 0 && (
+        <ManualClosePositionControl positions={visibleAccounts} t={t} compact onClosed={handleClosed} />
+      )}
       {loading ? (
         <div className="flex items-center justify-center py-4">
           <Loader2 className="h-5 w-5 animate-spin" />

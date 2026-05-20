@@ -54,5 +54,5 @@ BINANCE_BROKER_CONFIG = BinanceBrokerConfig(
 # This limits the number of AI-executed trades per day to prevent excessive API usage
 BINANCE_DAILY_QUOTA_LIMIT = 40
 
-# Factor Engine toggle (set to "true" to enable factor computation)
-FACTOR_ENGINE_ENABLED = os.getenv("FACTOR_ENGINE_ENABLED", "false").lower() == "true"
+# Factor Engine toggle. Enabled by default so Factor Library stays fresh automatically.
+FACTOR_ENGINE_ENABLED = os.getenv("FACTOR_ENGINE_ENABLED", "true").lower() == "true"

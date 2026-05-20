@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { ArrowLeft, Loader2 } from 'lucide-react'
 import { ScrollArea } from '@/components/ui/scroll-area'
@@ -11,6 +11,7 @@ import ExchangeIcon from '@/components/exchange/ExchangeIcon'
 import { ExchangeId, EXCHANGE_DISPLAY_NAMES } from '@/lib/types/exchange'
 
 const formatDate = (value?: string | null) => formatDateTime(value, { style: 'short' })
+const MODEL_CHAT_REFRESH_MS = 20_000
 
 export default function MobileModelChat() {
   const { t } = useTranslation()
@@ -23,23 +24,41 @@ export default function MobileModelChat() {
   const [loadingSnapshots, setLoadingSnapshots] = useState<Set<number>>(new Set())
   const [detailEntry, setDetailEntry] = useState<{ entry: ArenaModelChatEntry; section: string } | null>(null)
 
+  const loadEntries = useCallback(async (backgroundRefresh = false) => {
+    if (!backgroundRefresh) {
+      setLoading(true)
+    }
+    try {
+      const data = await getArenaModelChat({ trading_mode: tradingMode, limit: 50 })
+      const nextEntries = data.entries || []
+      setEntries((current) => (
+        backgroundRefresh ? mergeEntries(current, nextEntries) : nextEntries
+      ))
+    } catch (error) {
+      console.error('Failed to load model chat:', error)
+    } finally {
+      if (!backgroundRefresh) {
+        setLoading(false)
+      }
+    }
+  }, [tradingMode])
+
   useEffect(() => {
     if (tradingMode === 'testnet' || tradingMode === 'mainnet') {
       loadEntries()
     }
-  }, [tradingMode])
+  }, [tradingMode, loadEntries])
 
-  const loadEntries = async () => {
-    setLoading(true)
-    try {
-      const data = await getArenaModelChat({ trading_mode: tradingMode, limit: 50 })
-      setEntries(data.entries || [])
-    } catch (error) {
-      console.error('Failed to load model chat:', error)
-    } finally {
-      setLoading(false)
-    }
-  }
+  useEffect(() => {
+    if (tradingMode !== 'testnet' && tradingMode !== 'mainnet') return
+
+    const intervalId = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.hidden) return
+      loadEntries(true)
+    }, MODEL_CHAT_REFRESH_MS)
+
+    return () => window.clearInterval(intervalId)
+  }, [tradingMode, loadEntries])
 
   const loadSnapshots = async (entryId: number) => {
     if (snapshotCache.current.has(entryId)) return
@@ -249,4 +268,14 @@ export default function MobileModelChat() {
       </div>
     )
   }
+}
+
+function mergeEntries(existing: ArenaModelChatEntry[], incoming: ArenaModelChatEntry[]) {
+  const byId = new Map(existing.map((entry) => [entry.id, entry]))
+  incoming.forEach((entry) => byId.set(entry.id, entry))
+  return Array.from(byId.values()).sort((a, b) => {
+    const timeA = a.decision_time ? new Date(a.decision_time).getTime() : 0
+    const timeB = b.decision_time ? new Date(b.decision_time).getTime() : 0
+    return timeB - timeA
+  })
 }

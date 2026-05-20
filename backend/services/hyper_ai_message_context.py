@@ -5,11 +5,25 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from database.models import HyperAiConversation, HyperAiMessage, HyperAiProfile
+from services.binance_full_api_tools import BINANCE_FULL_API_TOOLS
 from services.hyper_ai_config import get_or_create_profile, load_system_prompt
 from services.hyper_ai_tools import HYPER_AI_TOOLS
 
 MAX_CHAT_IMAGE_ATTACHMENTS = 4
 MAX_CHAT_IMAGE_DATA_URL_CHARS = 9_000_000
+
+
+def _merge_tool_lists(*tool_lists: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = []
+    seen = set()
+    for tool_list in tool_lists:
+        for tool in tool_list or []:
+            name = (tool.get("function") or {}).get("name")
+            if not name or name in seen:
+                continue
+            seen.add(name)
+            merged.append(tool)
+    return merged
 
 
 def _normalize_chat_image_attachments(image_attachments: Optional[List[Dict[str, Any]]]) -> List[Dict[str, Any]]:
@@ -212,7 +226,7 @@ def build_messages_for_api(
             db,
         )
 
-    tools = HYPER_AI_TOOLS if include_tools else None
+    tools = _merge_tool_lists(HYPER_AI_TOOLS, BINANCE_FULL_API_TOOLS) if include_tools else None
 
     return messages, tools, command_skill
 

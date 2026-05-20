@@ -1,5 +1,6 @@
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional, Tuple
 import logging
+import time
 from .hyperliquid_market_data import (
     get_last_price_from_hyperliquid,
     get_kline_data_from_hyperliquid,
@@ -10,6 +11,44 @@ from .hyperliquid_market_data import (
 )
 
 logger = logging.getLogger(__name__)
+
+_KLINE_CACHE_TTL_SECONDS = 5
+_kline_cache: Dict[Tuple[str, str, str, str, int], Tuple[float, List[Dict[str, Any]]]] = {}
+
+
+def _get_cached_klines(
+    symbol: str,
+    market: str,
+    environment: str,
+    period: str,
+    count: int,
+) -> Optional[List[Dict[str, Any]]]:
+    key = (symbol.upper(), market.lower(), environment, period, count)
+    cached = _kline_cache.get(key)
+    if not cached:
+        return None
+
+    expires_at, rows = cached
+    if expires_at <= time.time():
+        _kline_cache.pop(key, None)
+        return None
+
+    return [dict(row) for row in rows]
+
+
+def _cache_klines(
+    symbol: str,
+    market: str,
+    environment: str,
+    period: str,
+    count: int,
+    rows: List[Dict[str, Any]],
+) -> None:
+    key = (symbol.upper(), market.lower(), environment, period, count)
+    _kline_cache[key] = (
+        time.time() + _KLINE_CACHE_TTL_SECONDS,
+        [dict(row) for row in rows],
+    )
 
 
 def get_last_price(symbol: str, market: str = "CRYPTO", environment: str = "mainnet") -> float:
@@ -72,6 +111,11 @@ def get_kline_data(symbol: str, market: str = "CRYPTO", period: str = "1d", coun
             from services.exchanges.binance_adapter import BinanceAdapter
             from datetime import datetime
 
+            cached = _get_cached_klines(symbol, market, environment, period, count)
+            if cached is not None:
+                logger.debug(f"Using cached K-line data for {key} from Binance ({environment})")
+                return cached
+
             adapter = BinanceAdapter(environment=environment)
             unified_klines = adapter.fetch_klines(symbol, period, limit=count)
 
@@ -93,6 +137,7 @@ def get_kline_data(symbol: str, market: str = "CRYPTO", period: str = "1d", coun
 
             if data:
                 logger.info(f"Got K-line data for {key} from Binance ({environment}), total {len(data)} items")
+                _cache_klines(symbol, market, environment, period, count, data)
                 return data
             raise Exception("Binance returned empty K-line data")
         except Exception as bn_err:

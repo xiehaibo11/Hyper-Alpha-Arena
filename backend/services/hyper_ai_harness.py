@@ -31,7 +31,7 @@ from services.hyper_ai_tool_runtime import (
     format_tool_validation_errors,
     validate_tool_arguments,
 )
-from services.hyper_ai_tools import execute_hyper_ai_tool
+from services.hyper_ai_tool_dispatch import execute_hyper_ai_tool
 
 logger = logging.getLogger(__name__)
 

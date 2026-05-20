@@ -160,6 +160,9 @@ def initialize_services():
         from services.exchanges.binance_collector import binance_collector
         from services.binance_symbol_service import get_selected_symbols as get_binance_selected_symbols
         binance_watchlist = get_binance_selected_symbols()
+        from services.signal_state_warmup import warm_signal_pool_states
+        warm_signal_pool_states(exchange="binance", symbols=binance_watchlist if binance_watchlist else ["BTC"])
+
         print(f"Starting Binance data collector with Binance watchlist: {binance_watchlist}")
         binance_collector.start(symbols=binance_watchlist if binance_watchlist else ["BTC"])
         print("Binance data collector started")
@@ -170,6 +173,16 @@ def initialize_services():
         binance_ws_collector.start(symbols=binance_watchlist if binance_watchlist else ["BTC"])
         print("Binance WebSocket collector started")
         logger.info(f"[Binance] WebSocket collector started with symbols: {binance_watchlist}")
+
+        # REST fallback keeps Binance CVD populated when futures WebSocket is unavailable.
+        from services.binance_flow_rest_backup import sync_binance_flow_from_klines
+        sync_binance_flow_from_klines(binance_watchlist if binance_watchlist else ["BTC"], limit=120)
+        task_scheduler.add_interval_task(
+            task_func=sync_binance_flow_from_klines,
+            interval_seconds=60,
+            task_id="binance_flow_rest_backup",
+        )
+        logger.info("[Binance] REST flow backup scheduled (60-second interval)")
 
         # Start OKX public data collector (REST API polling) - uses OKX Watchlist.
         import os

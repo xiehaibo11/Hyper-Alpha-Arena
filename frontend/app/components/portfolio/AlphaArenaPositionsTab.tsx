@@ -1,6 +1,9 @@
+import { useMemo, useState } from 'react'
 import type { TFunction } from 'i18next'
 import type { ArenaPositionsAccount } from '@/lib/api'
 import FlipNumber from './FlipNumber'
+import ManualClosePositionControl, { type ManualClosePositionOption } from './ManualClosePositionControl'
+import { useLiveArenaPositions } from './useLiveArenaPositions'
 
 interface AlphaArenaPositionsTabProps {
   loading: boolean
@@ -14,17 +17,37 @@ function formatPercent(value?: number | null) {
 }
 
 export default function AlphaArenaPositionsTab({ loading, positions, t }: AlphaArenaPositionsTabProps) {
-  if (loading && positions.length === 0) {
+  const [closedKeys, setClosedKeys] = useState<string[]>([])
+  const livePositions = useLiveArenaPositions({ positions, enabled: !loading })
+  const visiblePositions = useMemo(
+    () => livePositions
+      .map((snapshot) => ({
+        ...snapshot,
+        positions: snapshot.positions.filter(
+          (position) => !closedKeys.includes(toClosedKey(snapshot, position.symbol, position.quantity)),
+        ),
+      }))
+      .filter((snapshot) => snapshot.positions.length > 0),
+    [livePositions, closedKeys],
+  )
+
+  const handleClosed = (closed: ManualClosePositionOption) => {
+    const key = `${closed.accountId}:binance:${closed.symbol}:${closed.quantity}`
+    setClosedKeys((prev) => (prev.includes(key) ? prev : [...prev, key]))
+  }
+
+  if (loading && visiblePositions.length === 0) {
     return <div className="text-xs text-muted-foreground">{t('feed.loadingPositions', 'Loading positions...')}</div>
   }
 
-  if (positions.length === 0) {
+  if (visiblePositions.length === 0) {
     return <div className="text-xs text-muted-foreground">{t('feed.noPositions', 'No active positions currently.')}</div>
   }
 
   return (
-    <>
-      {positions.map((snapshot) => {
+    <div className="space-y-3">
+      <ManualClosePositionControl positions={visiblePositions} t={t} onClosed={handleClosed} />
+      {visiblePositions.map((snapshot) => {
         const marginUsageClass =
           snapshot.margin_usage_percent !== undefined && snapshot.margin_usage_percent !== null
             ? snapshot.margin_usage_percent >= 75
@@ -183,6 +206,10 @@ export default function AlphaArenaPositionsTab({ loading, positions, t }: AlphaA
           </div>
         )
       })}
-    </>
+    </div>
   )
+}
+
+function toClosedKey(snapshot: ArenaPositionsAccount, symbol: string, quantity: number) {
+  return `${snapshot.account_id}:${snapshot.exchange || 'hyperliquid'}:${symbol}:${quantity}`
 }

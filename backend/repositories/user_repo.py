@@ -89,8 +89,8 @@ def set_user_password(db: Session, user_id: int, password: str) -> Optional[User
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         return None
-    
-    user.password = _hash_password(password)
+
+    user.password_hash = _hash_password(password)
     db.commit()
     db.refresh(user)
     return user
@@ -99,16 +99,16 @@ def set_user_password(db: Session, user_id: int, password: str) -> Optional[User
 def verify_user_password(db: Session, user_id: int, password: str) -> bool:
     """Verify user trading password"""
     user = db.query(User).filter(User.id == user_id).first()
-    if not user or not user.password:
+    if not user or not user.password_hash:
         return False
-    
-    return user.password == _hash_password(password)
+
+    return secrets.compare_digest(user.password_hash, _hash_password(password))
 
 
 def user_has_password(db: Session, user_id: int) -> bool:
     """Check if user has set a trading password"""
     user = db.query(User).filter(User.id == user_id).first()
-    return user is not None and user.password is not None and user.password.strip() != ""
+    return user is not None and user.password_hash is not None and user.password_hash.strip() != ""
 
 
 def create_auth_session(db: Session, user_id: int) -> Optional[UserAuthSession]:

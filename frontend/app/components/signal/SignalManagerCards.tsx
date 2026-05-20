@@ -13,6 +13,7 @@ import {
   type SignalPool,
   type TriggerCondition,
 } from './SignalManagerSupport'
+import { SignalPoolLiveStatus } from './SignalPoolLiveStatus'
 
 function formatCondition(cond: TriggerCondition) {
   const metric = cond.metric?.startsWith('factor:')
@@ -165,6 +166,7 @@ export function SignalPoolCard({
               </span>
             </div>
           )}
+          <SignalPoolLiveStatus pool={pool} t={t} />
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full ${pool.enabled ? 'bg-green-500' : 'bg-gray-400'}`} />

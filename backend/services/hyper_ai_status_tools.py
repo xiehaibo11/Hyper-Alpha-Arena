@@ -9,6 +9,8 @@ from datetime import datetime
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from services.hyper_ai_wallet_status import execute_get_wallet_status
+
 logger = logging.getLogger(__name__)
 
 
@@ -77,6 +79,28 @@ def execute_get_system_overview(db: Session) -> str:
         for exchange, count in pools:
             result["signal_pools"][exchange or "hyperliquid"] = count
 
+        try:
+            wallet_status = json.loads(execute_get_wallet_status(db, exchange="all", environment="all"))
+            for wallet in wallet_status.get("wallets", []):
+                positions = wallet.get("positions") or []
+                if not positions:
+                    continue
+                key = (
+                    f"{wallet.get('exchange')}:{wallet.get('environment')}:"
+                    f"{wallet.get('trader_id')}"
+                )
+                result["open_positions"][key] = [
+                    {
+                        "symbol": pos.get("symbol"),
+                        "side": pos.get("side"),
+                        "size": pos.get("size"),
+                        "unrealized_pnl": pos.get("unrealized_pnl"),
+                    }
+                    for pos in positions
+                ]
+        except Exception as wallet_err:
+            result["open_positions_error"] = str(wallet_err)
+
         return json.dumps(result, indent=2)
 
     except Exception as e:
@@ -97,121 +121,6 @@ def execute_get_robot_architecture(db: Session, include_recent_activity: bool = 
     except Exception as e:
         logger.error(f"[get_robot_architecture] Error: {e}", exc_info=True)
         return json.dumps({"error": str(e), "_error_class": type(e).__name__})
-
-
-def execute_get_wallet_status(db: Session, exchange: str = "all", environment: str = "all") -> str:
-    """Get wallet balance and position summary using real-time API (same as frontend)."""
-    from database.models import HyperliquidWallet, BinanceWallet, Account
-    from services.hyperliquid_environment import get_hyperliquid_client
-    from services.binance_trading_client import BinanceTradingClient
-    from utils.encryption import decrypt_private_key
-
-    try:
-        wallets = []
-
-        # Query Hyperliquid wallets - use real-time API
-        if exchange in ["all", "hyperliquid"]:
-            hl_query = db.query(HyperliquidWallet, Account).join(
-                Account, HyperliquidWallet.account_id == Account.id
-            ).filter(HyperliquidWallet.is_active == "true")
-
-            if environment != "all":
-                hl_query = hl_query.filter(HyperliquidWallet.environment == environment)
-
-            for wallet, account in hl_query.all():
-                try:
-                    # Use get_hyperliquid_client to support API Wallet mode
-                    client = get_hyperliquid_client(db, account.id, override_environment=wallet.environment)
-                    account_state = client.get_account_state(db)
-
-                    wallet_info = {
-                        "exchange": "hyperliquid",
-                        "environment": wallet.environment,
-                        "wallet_address": wallet.wallet_address[:10] + "..." + wallet.wallet_address[-6:],
-                        "trader_id": account.id,
-                        "trader_name": account.name,
-                        "balance": {
-                            "total_equity": float(account_state.get("total_equity", 0)),
-                            "available_balance": float(account_state.get("available_balance", 0)),
-                            "used_margin": float(account_state.get("used_margin", 0))
-                        },
-                        "positions": [],
-                        "last_updated": "real-time"
-                    }
-
-                    # Get positions from API response
-                    for pos in account_state.get("positions", []):
-                        szi = float(pos.get("szi", 0) or 0)
-                        if szi != 0:
-                            wallet_info["positions"].append({
-                                "symbol": pos.get("coin", ""),
-                                "size": abs(szi),
-                                "side": "long" if szi > 0 else "short",
-                                "unrealized_pnl": float(pos.get("unrealized_pnl", 0) or 0)
-                            })
-
-                    wallets.append(wallet_info)
-                except Exception as e:
-                    logger.warning(f"[get_wallet_status] Failed to get Hyperliquid data for {account.name}: {e}")
-                    wallets.append({
-                        "exchange": "hyperliquid",
-                        "environment": wallet.environment,
-                        "wallet_address": wallet.wallet_address[:10] + "..." + wallet.wallet_address[-6:],
-                        "trader_id": account.id,
-                        "trader_name": account.name,
-                        "balance": {"total_equity": 0, "available_balance": 0, "used_margin": 0},
-                        "positions": [],
-                        "error": str(e)
-                    })
-
-        # Query Binance wallets - use real-time API
-        if exchange in ["all", "binance"]:
-            bn_query = db.query(BinanceWallet, Account).join(
-                Account, BinanceWallet.account_id == Account.id
-            ).filter(BinanceWallet.is_active == "true")
-
-            if environment != "all":
-                bn_query = bn_query.filter(BinanceWallet.environment == environment)
-
-            for wallet, account in bn_query.all():
-                try:
-                    # Decrypt API keys
-                    api_key = decrypt_private_key(wallet.api_key_encrypted)
-                    secret_key = decrypt_private_key(wallet.secret_key_encrypted)
-                    client = BinanceTradingClient(api_key, secret_key, wallet.environment)
-                    balance = client.get_balance()
-
-                    wallet_info = {
-                        "exchange": "binance",
-                        "environment": wallet.environment,
-                        "trader_id": account.id,
-                        "trader_name": account.name,
-                        "balance": {
-                            "total_equity": float(balance.get("total_equity", 0)),
-                            "available_balance": float(balance.get("available_balance", 0)),
-                            "unrealized_pnl": float(balance.get("unrealized_pnl", 0))
-                        },
-                        "positions": [],
-                        "last_updated": "real-time"
-                    }
-                    wallets.append(wallet_info)
-                except Exception as e:
-                    logger.warning(f"[get_wallet_status] Failed to get Binance data for {account.name}: {e}")
-                    wallets.append({
-                        "exchange": "binance",
-                        "environment": wallet.environment,
-                        "trader_id": account.id,
-                        "trader_name": account.name,
-                        "balance": {"total_equity": 0, "available_balance": 0, "unrealized_pnl": 0},
-                        "positions": [],
-                        "error": str(e)
-                    })
-
-        return json.dumps({"wallets": wallets}, indent=2)
-
-    except Exception as e:
-        logger.error(f"[get_wallet_status] Error: {e}")
-        return json.dumps({"error": str(e)})
 
 
 def execute_get_api_reference(doc_type: str, api_type: str = "all", lang: str = "en") -> str:

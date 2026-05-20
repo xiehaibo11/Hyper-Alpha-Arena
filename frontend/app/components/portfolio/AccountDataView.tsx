@@ -1,102 +1,19 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import AssetCurveWithData from './AssetCurveWithData'
 import HyperliquidSummary from './HyperliquidSummary'
 import StrategyPanel from '@/components/portfolio/StrategyPanel'
 import {
-  AIDecision,
   ArenaPositionItem,
   ArenaPositionsAccount,
   getArenaPositions,
 } from '@/lib/api'
+import type { AccountDataViewProps } from './AccountDataViewTypes'
 import AlphaArenaFeed from './AlphaArenaFeed'
 import ArenaAnalyticsFeed from './ArenaAnalyticsFeed'
 import FlipNumber from './FlipNumber'
 import RealtimePrice from './RealtimePrice'
 import { useTradingMode } from '@/contexts/TradingModeContext'
-
-interface Account {
-  id: number
-  user_id: number
-  name: string
-  account_type: string
-  initial_capital: number
-  current_cash: number
-  frozen_cash: number
-}
-
-interface Overview {
-  account: Account
-  total_assets: number
-  positions_value: number
-}
-
-interface Position {
-  id: number
-  account_id?: number
-  user_id?: number
-  symbol: string
-  name: string
-  market: string
-  quantity: number
-  available_quantity: number
-  avg_cost: number
-  last_price?: number | null
-  market_value?: number | null
-}
-
-interface Order {
-  id: number
-  order_no: string
-  symbol: string
-  name: string
-  market: string
-  side: string
-  order_type: string
-  price?: number
-  quantity: number
-  filled_quantity: number
-  status: string
-}
-
-interface Trade {
-  id: number
-  order_id: number
-  account_id?: number
-  user_id?: number
-  symbol: string
-  name: string
-  market: string
-  side: string
-  price: number
-  quantity: number
-  commission: number
-  trade_time: string
-}
-
-interface AccountDataViewProps {
-  overview: Overview | null
-  positions: Position[]
-  orders: Order[]
-  trades: Trade[]
-  aiDecisions: AIDecision[]
-  allAssetCurves: any[]
-  wsRef?: React.MutableRefObject<WebSocket | null>
-  onSwitchAccount: (accountId: number) => void
-  onRefreshData: () => void
-  accountRefreshTrigger?: number
-  showAssetCurves?: boolean
-  showStrategyPanel?: boolean
-  accounts?: any[]
-  loadingAccounts?: boolean
-}
-
-function formatCurrency(value?: number | null, fractionDigits = 2) {
-  if (value === undefined || value === null || Number.isNaN(value)) return '$0.00'
-  return `$${value.toLocaleString(undefined, {
-    minimumFractionDigits: fractionDigits,
-    maximumFractionDigits: Math.max(2, fractionDigits),
-  })}`
-}
+import { useLiveArenaPositions } from './useLiveArenaPositions'
 
 const SUPPORTED_SYMBOLS = ['BTC', 'ETH', 'SOL', 'BNB', 'XRP', 'DOGE'] as const
 
@@ -122,6 +39,7 @@ export default function AccountDataView(props: AccountDataViewProps) {
   } | null>(null)
   const [realtimeSymbolTotals, setRealtimeSymbolTotals] = useState<Record<string, number> | null>(null)
   const currentAccountId = overview?.account?.id ?? null
+  const liveGlobalPositionSnapshots = useLiveArenaPositions({ positions: globalPositionSnapshots })
 
   useEffect(() => {
     let isMounted = true
@@ -245,13 +163,13 @@ export default function AccountDataView(props: AccountDataViewProps) {
   }, [positions, overview?.account?.id])
 
   const globalPositionSummaries = useMemo(() => {
-    if (!globalPositionSnapshots.length) {
+    if (!liveGlobalPositionSnapshots.length) {
       return []
     }
 
     const aggregates = new Map<string, number>()
 
-    globalPositionSnapshots.forEach((snapshot) => {
+    liveGlobalPositionSnapshots.forEach((snapshot) => {
       snapshot.positions.forEach((position: ArenaPositionItem) => {
         const symbol = position.symbol?.toUpperCase()
         if (!symbol || !SUPPORTED_SYMBOLS.includes(symbol as typeof SUPPORTED_SYMBOLS[number])) {
@@ -272,7 +190,7 @@ export default function AccountDataView(props: AccountDataViewProps) {
       symbol,
       marketValue: aggregates.get(symbol) ?? 0,
     }))
-  }, [globalPositionSnapshots])
+  }, [liveGlobalPositionSnapshots])
 
   const positionSummaries = useMemo(() => {
     if (realtimeSymbolTotals) {
@@ -309,19 +227,19 @@ export default function AccountDataView(props: AccountDataViewProps) {
       }
     }
 
-    const hasGlobalSnapshots = globalPositionSnapshots.length > 0
+    const hasGlobalSnapshots = liveGlobalPositionSnapshots.length > 0
     const accountsList = props.accounts ?? []
     const hasAccountsList = accountsList.length > 0
 
     const globalAvailableCash = hasGlobalSnapshots
-      ? globalPositionSnapshots.reduce(
+      ? liveGlobalPositionSnapshots.reduce(
           (acc, snapshot) => acc + (snapshot.available_cash ?? 0),
           0,
         )
       : 0
 
     const globalPositionsValue = hasGlobalSnapshots
-      ? globalPositionSnapshots.reduce((acc, snapshot) => {
+      ? liveGlobalPositionSnapshots.reduce((acc, snapshot) => {
           // Use positions_value from API if available (Hyperliquid provides accurate real-time value)
           // Otherwise fall back to summing individual position values
           const snapshotTotal = snapshot.positions_value !== undefined
@@ -364,7 +282,7 @@ export default function AccountDataView(props: AccountDataViewProps) {
       totalAssets: totalAssetsTotal,
     }
   }, [
-    globalPositionSnapshots,
+    liveGlobalPositionSnapshots,
     props.accounts,
     accountAvailableCash,
     accountFrozenCash,
@@ -485,6 +403,7 @@ export default function AccountDataView(props: AccountDataViewProps) {
             <div className={`${showStrategyPanel ? 'col-span-3' : 'col-span-1'} flex flex-col flex-1 min-h-0 overflow-hidden border border-border rounded-lg bg-card shadow-sm px-4 py-3 gap-4`}>
               {showAssetCurves ? (
                 <AlphaArenaFeed
+                  autoRefreshInterval={30_000}
                   refreshKey={accountRefreshTrigger}
                   wsRef={wsRef}
                   selectedAccount={selectedArenaAccount}

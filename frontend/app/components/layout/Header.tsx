@@ -1,4 +1,4 @@
-import { LogOut, UserCog } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import {
@@ -6,13 +6,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCurrentExchangeInfo } from '@/contexts/ExchangeContext'
-import { getSignInUrl } from '@/lib/auth'
 import { useEnterToSend } from '@/hooks/useEnterToSend'
 
 interface Account {
@@ -33,28 +31,24 @@ interface HeaderProps {
 
 export default function Header({ title = 'Hyper Alpha Arena', currentAccount, showAccountSelector = false }: HeaderProps) {
   const { t } = useTranslation()
-  const { user, loading, authEnabled, logout } = useAuth()
+  const { user, loading, authEnabled, login, logout } = useAuth()
   const currentExchangeInfo = useCurrentExchangeInfo()
   const exchangeLabel = currentExchangeInfo.name || currentExchangeInfo.id
   useEnterToSend()
 
   const handleSignUp = async () => {
-    const signInUrl = await getSignInUrl()
-    if (signInUrl) {
-      window.location.href = signInUrl
-    }
+    await login('')
   }
 
   return (
     <header className="w-full border-b bg-background/50 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="w-full py-2 px-3 md:px-4 flex items-center justify-between">
-        <div className="flex items-center gap-2 md:gap-3">
+        <div className="min-w-0 flex items-center gap-2 md:gap-3">
           <h1 className="text-base md:text-xl font-bold truncate">{title}</h1>
           <span className="hidden md:inline text-xs text-muted-foreground ml-2">{exchangeLabel}</span>
         </div>
 
-        {/* Right side controls - Hidden on mobile */}
-        <div className="hidden md:flex items-center gap-3">
+        <div className="flex items-center gap-2 md:gap-3">
           {authEnabled && (
             <>
               {loading ? (
@@ -84,11 +78,6 @@ export default function Header({ title = 'Hyper Alpha Arena', currentAccount, sh
                         </p>
                       </div>
                     </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => window.open('https://account.akooi.com/account', '_blank')}>
-                      <UserCog className="mr-2 h-4 w-4" />
-                      <span>{t('header.myAccount', 'My Account')}</span>
-                    </DropdownMenuItem>
                     <DropdownMenuItem onClick={logout}>
                       <LogOut className="mr-2 h-4 w-4" />
                       <span>{t('header.signOut', 'Sign Out')}</span>
@@ -99,7 +88,7 @@ export default function Header({ title = 'Hyper Alpha Arena', currentAccount, sh
                 <Button
                   onClick={handleSignUp}
                   size="sm"
-                  className="px-4 py-2 text-sm font-medium"
+                  className="px-3 py-2 text-sm font-medium md:px-4"
                 >
                   {t('header.login', 'Login')}
                 </Button>
