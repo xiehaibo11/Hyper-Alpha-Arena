@@ -52,7 +52,7 @@ class StrategyState:
     trigger_interval: int   # Trigger interval (seconds) - scheduled trigger fallback
     signal_pool_ids: List[int]  # Signal pool bindings for signal-based triggering (OR relationship)
     enabled: bool
-    scheduled_trigger_enabled: bool  # Enable/disable scheduled trigger
+    scheduled_trigger_enabled: bool  # Optional scheduled fallback; realtime signals are primary
     last_trigger_at: Optional[datetime]
     exchange: str = "hyperliquid"  # "hyperliquid" or "binance"
     running: bool = False
@@ -105,37 +105,9 @@ class StrategyState:
         with self.lock:
             if self.running:
                 return False
-            now_ts = event_time.timestamp()
-            last_ts = self.last_trigger_at.timestamp() if self.last_trigger_at else 0
-            time_diff = now_ts - last_ts
-            if self.trigger_interval > 0 and time_diff < self.trigger_interval:
-                logger.info(
-                    "Strategy signal trigger skipped for account %s: cooldown %.1fs / %ss",
-                    self.account_id,
-                    time_diff,
-                    self.trigger_interval,
-                )
-                return False
             self.last_trigger_at = event_time
             self.running = True
             return True
-
-    def signal_trigger_block_reason(self, event_time: datetime) -> str:
-        """Explain why a signal trigger could not start."""
-        if not self.enabled:
-            return "disabled"
-
-        with self.lock:
-            if self.running:
-                return "already_running"
-            now_ts = event_time.timestamp()
-            last_ts = self.last_trigger_at.timestamp() if self.last_trigger_at else 0
-            time_diff = now_ts - last_ts
-            if self.trigger_interval > 0 and time_diff < self.trigger_interval:
-                remaining = max(0.0, self.trigger_interval - time_diff)
-                return f"cooldown_remaining={remaining:.1f}s"
-
-        return "not_triggered"
 
 
 class StrategyManager:
@@ -191,25 +163,20 @@ class StrategyManager:
                     .all()
                 )
 
-                existing_states = dict(self.strategies)
-                next_strategies: Dict[int, StrategyState] = {}
+                self.strategies.clear()
                 for strategy, account in rows:
                     pool_ids = parse_signal_pool_ids(strategy)
-                    existing_state = existing_states.get(strategy.account_id)
                     state = StrategyState(
                         account_id=strategy.account_id,
                         price_threshold=strategy.price_threshold,
                         trigger_interval=strategy.trigger_interval,
                         signal_pool_ids=pool_ids,
                         enabled=strategy.enabled == "true",
-                        scheduled_trigger_enabled=strategy.scheduled_trigger_enabled,
+                        scheduled_trigger_enabled=bool(strategy.scheduled_trigger_enabled),
                         last_trigger_at=_as_aware(strategy.last_trigger_at),
                         exchange=getattr(strategy, 'exchange', None) or "hyperliquid",
                     )
-                    if existing_state:
-                        state.running = existing_state.running
-                        state.lock = existing_state.lock
-                    next_strategies[strategy.account_id] = state
+                    self.strategies[strategy.account_id] = state
 
                     # DEBUG: Print loaded strategy configuration
                     print(
@@ -220,7 +187,6 @@ class StrategyManager:
                         f"last_trigger={state.last_trigger_at}"
                     )
 
-                self.strategies = next_strategies
                 logger.info(f"Loaded {len(self.strategies)} strategies")
             finally:
                 db.close()
@@ -260,7 +226,6 @@ class StrategyManager:
                     scheduled_trigger_context = {
                         "trigger_type": "scheduled",
                         "trigger_interval": state.trigger_interval,
-                        "trigger_symbol": symbol,
                     }
                     self._execute_strategy(
                         account_id, symbol, event_time,
@@ -286,9 +251,6 @@ class StrategyManager:
             return
 
         # Note: running state and timestamp already set in should_trigger or mark_triggered_by_signal
-        exchange = state.exchange
-        previous_decision_id = None
-        audit_trigger = False
         try:
             # Immediately persist timestamp to database (before AI call)
             with SessionLocal() as db:
@@ -297,13 +259,17 @@ class StrategyManager:
                 if strategy:
                     strategy.last_trigger_at = event_time
                     db.commit()
-                    logger.info(
-                        f"Strategy execution started for account {account_id} (trigger: {trigger_type}), "
-                        f"next scheduled trigger in {strategy.trigger_interval}s ({strategy.trigger_interval/60:.1f}min)"
-                    )
-                from services.strategy_decision_diagnostics import get_latest_decision_id
-
-                previous_decision_id = get_latest_decision_id(db, account_id, exchange)
+                    if strategy.scheduled_trigger_enabled:
+                        logger.info(
+                            f"Strategy execution started for account {account_id} (trigger: {trigger_type}), "
+                            f"scheduled fallback interval={strategy.trigger_interval}s "
+                            f"({strategy.trigger_interval/60:.1f}min)"
+                        )
+                    else:
+                        logger.info(
+                            f"Strategy execution started for account {account_id} (trigger: {trigger_type}), "
+                            "realtime signal mode with scheduled fallback disabled"
+                        )
 
             # Check account configuration
             with SessionLocal() as db:
@@ -313,7 +279,7 @@ class StrategyManager:
                     return
 
             # Execute AI trading decision based on exchange configuration
-            audit_trigger = True
+            exchange = state.exchange
             logger.info(f"Account {account_id} executing {exchange} trading (trigger: {trigger_type})")
 
             if exchange == "binance":
@@ -327,35 +293,8 @@ class StrategyManager:
         except Exception as e:
             logger.error(f"Error executing strategy for account {account_id}: {e}")
         finally:
-            if audit_trigger:
-                try:
-                    from services.strategy_decision_diagnostics import ensure_decision_log_for_trigger
-
-                    with SessionLocal() as db:
-                        ensure_decision_log_for_trigger(
-                            db,
-                            account_id=account_id,
-                            exchange=exchange,
-                            trigger_time=event_time,
-                            previous_decision_id=previous_decision_id,
-                            trigger_context=trigger_context,
-                        )
-                except Exception as diagnostic_err:
-                    logger.error(
-                        "Failed to record missing-decision diagnostic for account %s: %s",
-                        account_id,
-                        diagnostic_err,
-                        exc_info=True,
-                    )
-            # Always reset running state. Strategy config reloads can replace the
-            # StrategyState object while an execution is in-flight, so clear both
-            # the original state and the manager's current state for this account.
-            with state.lock:
-                state.running = False
-            current_state = self.strategies.get(account_id)
-            if current_state is not None and current_state is not state:
-                with current_state.lock:
-                    current_state.running = False
+            # Always reset running state
+            state.running = False
 
     def get_strategy_status(self) -> Dict[str, Any]:
         """Get status of all strategies"""
@@ -371,6 +310,9 @@ class StrategyManager:
                 "running": state.running,
                 "price_threshold": state.price_threshold,
                 "trigger_interval": state.trigger_interval,
+                "scheduled_trigger_enabled": state.scheduled_trigger_enabled,
+                "signal_pool_ids": state.signal_pool_ids,
+                "exchange": state.exchange,
                 "last_trigger_at": state.last_trigger_at.isoformat() if state.last_trigger_at else None
             }
 
@@ -467,8 +409,7 @@ class HyperliquidStrategyManager(StrategyManager):
                         trigger_type=trigger_type, trigger_context=trigger_context
                     )
                 else:
-                    reason = state.signal_trigger_block_reason(event_time)
-                    print(f"[HyperliquidStrategy] Account {account_id} signal trigger skipped: {reason}")
+                    print(f"[HyperliquidStrategy] Account {account_id} mark_triggered_by_signal returned False (already running?)")
 
         if not found_match:
             print(f"[HyperliquidStrategy] No strategy found bound to pool_id={pool_id}")
@@ -486,25 +427,20 @@ class HyperliquidStrategyManager(StrategyManager):
                     .all()
                 )
 
-                existing_states = dict(self.strategies)
-                next_strategies: Dict[int, StrategyState] = {}
+                self.strategies.clear()
                 for strategy, account in rows:
                     pool_ids = parse_signal_pool_ids(strategy)
-                    existing_state = existing_states.get(strategy.account_id)
                     state = StrategyState(
                         account_id=strategy.account_id,
                         price_threshold=strategy.price_threshold,
                         trigger_interval=strategy.trigger_interval,
                         signal_pool_ids=pool_ids,
                         enabled=strategy.enabled == "true",
-                        scheduled_trigger_enabled=strategy.scheduled_trigger_enabled,
+                        scheduled_trigger_enabled=bool(strategy.scheduled_trigger_enabled),
                         last_trigger_at=_as_aware(strategy.last_trigger_at),
                         exchange=getattr(strategy, 'exchange', None) or "hyperliquid",
                     )
-                    if existing_state:
-                        state.running = existing_state.running
-                        state.lock = existing_state.lock
-                    next_strategies[strategy.account_id] = state
+                    self.strategies[strategy.account_id] = state
 
                     print(
                         f"[HyperliquidStrategy DEBUG] Loaded strategy for account {strategy.account_id} ({account.name}): "
@@ -514,7 +450,6 @@ class HyperliquidStrategyManager(StrategyManager):
                         f"last_trigger={state.last_trigger_at}"
                     )
 
-                self.strategies = next_strategies
                 logger.info(f"[HyperliquidStrategy] Loaded {len(self.strategies)} strategies")
             finally:
                 db.close()

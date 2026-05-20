@@ -263,6 +263,19 @@ Or for program:
 
 ---
 
+### 1.6a get_exchange_public_data / list_exchange_instruments / get_exchange_account_data
+
+**Purpose**: Expose shared read-only Binance/OKX API query tools to Hyper AI and sub-AIs.
+
+**Scope**:
+- `get_exchange_public_data`: live Binance/OKX public market snapshot for one symbol, including ticker/price, K-lines, orderbook, funding, open interest, sentiment/long-short data where supported, recent trades, and optional histories.
+- `list_exchange_instruments`: Binance futures or OKX swap instrument/ticker discovery.
+- `get_exchange_account_data`: configured Binance account read-only snapshot (balance, positions, open orders, recent trades, income, stats, rate limits). It never returns API keys or secrets. OKX private account data is not configured yet.
+
+**Safety**: These tools do not place orders, update settings, save records, or delete data.
+
+---
+
 ### 1.7 get_system_logs
 
 **Purpose**: Get recent system error/warning logs for troubleshooting.

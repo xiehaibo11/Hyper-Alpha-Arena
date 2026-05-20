@@ -73,9 +73,9 @@ export default function StrategyPanel({
 
   // Trader-specific settings
   const [priceThreshold, setPriceThreshold] = useState<string>('1.0')
-  const [triggerInterval, setTriggerInterval] = useState<string>('180')
+  const [triggerInterval, setTriggerInterval] = useState<string>('150')
   const [enabled, setEnabled] = useState<boolean>(true)
-  const [scheduledTriggerEnabled, setScheduledTriggerEnabled] = useState<boolean>(true)
+  const [scheduledTriggerEnabled, setScheduledTriggerEnabled] = useState<boolean>(false)
   const [lastTriggerAt, setLastTriggerAt] = useState<string | null>(null)
   const [signalPoolIds, setSignalPoolIds] = useState<number[]>([])
   const [signalPools, setSignalPools] = useState<SignalPool[]>([])
@@ -115,9 +115,9 @@ export default function StrategyPanel({
       if (strategyResponse.ok) {
         const strategy: StrategyConfig = await strategyResponse.json()
         setPriceThreshold((strategy.price_threshold ?? 1.0).toString())
-        setTriggerInterval((strategy.interval_seconds ?? 180).toString())
+        setTriggerInterval((strategy.interval_seconds ?? 150).toString())
         setEnabled(strategy.enabled)
-        setScheduledTriggerEnabled(strategy.scheduled_trigger_enabled ?? true)
+        setScheduledTriggerEnabled(strategy.scheduled_trigger_enabled ?? false)
         setLastTriggerAt(strategy.last_trigger_at ?? null)
         // Use new signal_pool_ids field, fallback to old signal_pool_id for compatibility
         const poolIds = strategy.signal_pool_ids ?? (strategy.signal_pool_id ? [strategy.signal_pool_id] : [])
@@ -268,9 +268,9 @@ export default function StrategyPanel({
 
       const result: StrategyConfig = await response.json()
       setPriceThreshold((result.price_threshold ?? 1.0).toString())
-      setTriggerInterval((result.interval_seconds ?? 180).toString())
+      setTriggerInterval((result.interval_seconds ?? 150).toString())
       setEnabled(result.enabled)
-      setScheduledTriggerEnabled(result.scheduled_trigger_enabled ?? true)
+      setScheduledTriggerEnabled(result.scheduled_trigger_enabled ?? false)
       setLastTriggerAt(result.last_trigger_at ?? null)
       // Use new signal_pool_ids field
       const poolIds = result.signal_pool_ids ?? (result.signal_pool_id ? [result.signal_pool_id] : [])
@@ -431,7 +431,7 @@ export default function StrategyPanel({
                   <p className="text-xs text-muted-foreground">
                     {signalPoolIds.length > 0
                       ? t('strategy.triggerWhenAnyMet', 'Trigger when ANY selected pool conditions are met (OR relationship)')
-                      : t('strategy.scheduledOnly', 'Only use scheduled interval trigger')}
+                      : t('strategy.noRealtimeSignalPools', 'No realtime signal pool selected. AI will not run unless scheduled fallback is enabled.')}
                   </p>
                   {signalPoolIds.length > 1 && (
                     <p className="text-xs text-yellow-600 dark:text-yellow-400">
@@ -442,7 +442,7 @@ export default function StrategyPanel({
 
                 <section className="space-y-2">
                   <div className="flex items-center justify-between">
-                    <div className="text-xs text-muted-foreground uppercase tracking-wide">{t('strategy.triggerInterval', 'Trigger Interval (seconds)')}</div>
+                    <div className="text-xs text-muted-foreground uppercase tracking-wide">{t('strategy.triggerInterval', 'Scheduled Fallback Interval (seconds)')}</div>
                     <Switch
                       checked={scheduledTriggerEnabled}
                       onCheckedChange={(checked) => {
@@ -465,8 +465,8 @@ export default function StrategyPanel({
                   />
                   <p className="text-xs text-muted-foreground">
                     {scheduledTriggerEnabled
-                      ? t('strategy.triggerIntervalHint', 'Maximum time between triggers (default: 180s)')
-                      : t('strategy.scheduledTriggerDisabled', 'Scheduled trigger is disabled. AI will only run on signal pool triggers.')}
+                      ? t('strategy.triggerIntervalHint', 'Optional fallback: run AI after this interval if no realtime signal has triggered.')
+                      : t('strategy.scheduledTriggerDisabled', 'Scheduled fallback is disabled. AI runs from realtime signal pool triggers.')}
                   </p>
                 </section>
 
@@ -474,7 +474,7 @@ export default function StrategyPanel({
                 {!scheduledTriggerEnabled && signalPoolIds.length === 0 && (
                   <div className="rounded-md bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-3">
                     <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                      {t('strategy.noTriggerWarning', 'Warning: This AI Trader has no active trigger method. It will not execute any trades until you enable scheduled trigger or bind a signal pool.')}
+                      {t('strategy.noTriggerWarning', 'Warning: This AI Trader has no active trigger method. Bind a realtime signal pool or enable scheduled fallback.')}
                     </p>
                   </div>
                 )}
@@ -483,7 +483,7 @@ export default function StrategyPanel({
                   <div className="flex items-center justify-between">
                     <div>
                       <div className="text-xs text-muted-foreground uppercase tracking-wide">{t('strategy.strategyStatus', 'Strategy Status')}</div>
-                      <p className="text-xs text-muted-foreground">{enabled ? t('strategy.enabledDesc', 'Enabled: strategy reacts to signals and scheduled triggers.') : t('strategy.disabledDesc', 'Disabled: strategy will not auto-trade.')}</p>
+                      <p className="text-xs text-muted-foreground">{enabled ? t('strategy.enabledDesc', 'Enabled: strategy reacts to realtime signals; scheduled fallback is optional.') : t('strategy.disabledDesc', 'Disabled: strategy will not auto-trade.')}</p>
                     </div>
                     <Switch
                       checked={enabled}

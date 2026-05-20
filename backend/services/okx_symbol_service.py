@@ -21,11 +21,7 @@ SYMBOL_REFRESH_TASK_ID = "okx_symbol_refresh"
 
 
 def _watchlist_limit() -> int:
-    raw_value = (
-        os.getenv("OKX_MAX_WATCHLIST_SYMBOLS")
-        or os.getenv("MARKET_DATA_MAX_WATCHLIST_SYMBOLS")
-        or "200"
-    )
+    raw_value = os.getenv("OKX_MAX_WATCHLIST_SYMBOLS") or os.getenv("MARKET_DATA_MAX_WATCHLIST_SYMBOLS") or "200"
     try:
         return max(1, min(1000, int(raw_value)))
     except ValueError:
@@ -119,9 +115,7 @@ def fetch_remote_symbols() -> List[Dict[str, str]]:
     for entry in instruments:
         if not isinstance(entry, dict):
             continue
-        if entry.get("state") != "live":
-            continue
-        if entry.get("settleCcy") != "USDT":
+        if entry.get("state") != "live" or entry.get("settleCcy") != "USDT":
             continue
         inst_id = str(entry.get("instId") or "")
         if not inst_id.endswith("-USDT-SWAP"):
@@ -130,14 +124,7 @@ def fetch_remote_symbols() -> List[Dict[str, str]]:
         if not symbol or symbol in seen:
             continue
         seen.add(symbol)
-        results.append(
-            {
-                "symbol": symbol,
-                "name": symbol,
-                "type": "perpetual",
-                "instId": inst_id,
-            }
-        )
+        results.append({"symbol": symbol, "name": symbol, "type": "perpetual", "instId": inst_id})
 
     logger.info("[OKX] Fetched %d USDT perpetual swap symbols", len(results))
     return results
@@ -154,20 +141,17 @@ def _ensure_watchlist_valid(db: Session, available: List[Dict[str, str]]) -> Non
                 continue
             try:
                 source_symbols = json.loads(source_raw)
-                if isinstance(source_symbols, list):
-                    valid = [str(item).upper() for item in source_symbols if str(item).upper() in available_set]
-                    if valid:
-                        _save_config_value(db, OKX_SELECTED_SYMBOLS_KEY, json.dumps(valid[:MAX_WATCHLIST_SYMBOLS]))
-                        logger.info("[OKX] Initialized watchlist from %s: %s", source_key, valid[:MAX_WATCHLIST_SYMBOLS])
-                        return
             except (json.JSONDecodeError, TypeError):
                 continue
+            if isinstance(source_symbols, list):
+                valid = [str(item).upper() for item in source_symbols if str(item).upper() in available_set]
+                if valid:
+                    _save_config_value(db, OKX_SELECTED_SYMBOLS_KEY, json.dumps(valid[:MAX_WATCHLIST_SYMBOLS]))
+                    logger.info("[OKX] Initialized watchlist from %s: %s", source_key, valid[:MAX_WATCHLIST_SYMBOLS])
+                    return
 
         default = [entry["symbol"] for entry in DEFAULT_SYMBOLS if entry["symbol"] in available_set]
-        if not default:
-            default = [entry["symbol"] for entry in available[:3]]
-        _save_config_value(db, OKX_SELECTED_SYMBOLS_KEY, json.dumps(default))
-        logger.info("[OKX] Initialized watchlist with defaults: %s", default)
+        _save_config_value(db, OKX_SELECTED_SYMBOLS_KEY, json.dumps(default or [entry["symbol"] for entry in available[:3]]))
         return
 
     try:
@@ -230,8 +214,7 @@ def get_selected_symbols() -> List[str]:
 
 
 def update_selected_symbols(symbols: List[str]) -> List[str]:
-    available = get_available_symbols()
-    available_set = {item["symbol"] for item in available}
+    available_set = {item["symbol"] for item in get_available_symbols()}
     unique_symbols: List[str] = []
     seen = set()
     for symbol in symbols:
@@ -240,8 +223,7 @@ def update_selected_symbols(symbols: List[str]) -> List[str]:
             continue
         seen.add(sym)
         unique_symbols.append(sym)
-    if len(unique_symbols) > MAX_WATCHLIST_SYMBOLS:
-        unique_symbols = unique_symbols[:MAX_WATCHLIST_SYMBOLS]
+    unique_symbols = unique_symbols[:MAX_WATCHLIST_SYMBOLS]
 
     with SessionLocal() as db:
         _save_config_value(db, OKX_SELECTED_SYMBOLS_KEY, json.dumps(unique_symbols))

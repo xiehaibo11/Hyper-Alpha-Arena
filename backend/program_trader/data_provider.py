@@ -109,7 +109,7 @@ class DataProvider:
         self.environment = environment
         self.trading_client = trading_client
         self.record_queries = record_queries
-        self.exchange = exchange  # "hyperliquid", "binance", or "okx"
+        self.exchange = "okx" if str(exchange).lower() == "oke" else exchange  # "hyperliquid", "binance", or "okx"
         self._query_log: List[Dict[str, Any]] = []
         self._kline_cache: Dict[str, List[Kline]] = {}
         self._account_cache: Optional[Dict[str, Any]] = None
@@ -119,7 +119,9 @@ class DataProvider:
 
     def _get_market_param(self) -> str:
         """Get market parameter for data services based on exchange."""
-        return self.exchange if self.exchange in {"binance", "okx"} else "CRYPTO"
+        if self.exchange in {"binance", "okx"}:
+            return self.exchange
+        return "CRYPTO"
 
     def _log_query(self, method: str, args: Dict[str, Any], result: Any) -> None:
         """Record a data query for preview run debugging."""

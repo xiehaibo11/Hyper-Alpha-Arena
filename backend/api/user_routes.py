@@ -22,6 +22,8 @@ from schemas.user import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/users", tags=["users"])
+SELECTABLE_EXCHANGES = {"binance", "okx", "aster"}
+DEFAULT_SELECTED_EXCHANGE = "binance"
 
 
 def get_db():
@@ -39,7 +41,7 @@ async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
         existing = get_user_by_username(db, user_data.username)
         if existing:
             raise HTTPException(status_code=400, detail="Username already exists")
-
+        
         # Create new user
         user = create_user(
             db=db,
@@ -47,14 +49,14 @@ async def register_user(user_data: UserCreate, db: Session = Depends(get_db)):
             email=user_data.email,
             password=user_data.password
         )
-
+        
         return UserOut(
             id=user.id,
             username=user.username,
             email=user.email,
             is_active=user.is_active == "true"
         )
-
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -70,12 +72,12 @@ async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
         user = get_user_by_username(db, login_data.username)
         if not user:
             raise HTTPException(status_code=401, detail="Invalid credentials")
-
+        
         # Create auth session
         session = create_auth_session(db, user.id)
         if not session:
             raise HTTPException(status_code=500, detail="Failed to create session")
-
+        
         return UserAuthResponse(
             user=UserOut(
                 id=user.id,
@@ -86,7 +88,7 @@ async def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
             session_token=session.session_token,
             expires_at=session.expires_at.isoformat()
         )
-
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -100,18 +102,18 @@ async def get_user_profile(session_token: str, db: Session = Depends(get_db)):
         user_id = verify_auth_session(db, session_token)
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid or expired session")
-
+        
         user = get_user(db, user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-
+        
         return UserOut(
             id=user.id,
             username=user.username,
             email=user.email,
             is_active=user.is_active == "true"
         )
-
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -121,38 +123,38 @@ async def get_user_profile(session_token: str, db: Session = Depends(get_db)):
 
 @router.put("/profile", response_model=UserOut)
 async def update_user_profile(
-    session_token: str,
-    user_data: UserUpdate,
+    session_token: str, 
+    user_data: UserUpdate, 
     db: Session = Depends(get_db)
 ):
     try:
         user_id = verify_auth_session(db, session_token)
         if not user_id:
             raise HTTPException(status_code=401, detail="Invalid or expired session")
-
+        
         # Check if new username is taken (if provided)
         if user_data.username:
             existing = get_user_by_username(db, user_data.username)
             if existing and existing.id != user_id:
                 raise HTTPException(status_code=400, detail="Username already exists")
-
+        
         user = update_user(
             db=db,
             user_id=user_id,
             username=user_data.username,
             email=user_data.email
         )
-
+        
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
-
+        
         return UserOut(
             id=user.id,
             username=user.username,
             email=user.email,
             is_active=user.is_active == "true"
         )
-
+        
     except HTTPException:
         raise
     except Exception as e:
@@ -173,7 +175,7 @@ async def list_users(db: Session = Depends(get_db)):
             )
             for user in users
         ]
-
+        
     except Exception as e:
         logger.error(f"Failed to list users: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to list users: {str(e)}")
@@ -187,8 +189,11 @@ async def get_exchange_config(db: Session = Depends(get_db)):
         config = db.query(UserExchangeConfig).filter(UserExchangeConfig.user_id == 1).first()
         if not config:
             # Return default if no config exists
-            return {"selected_exchange": "binance"}
-        return {"selected_exchange": config.selected_exchange}
+            return {"selected_exchange": DEFAULT_SELECTED_EXCHANGE}
+        selected = config.selected_exchange
+        if selected not in SELECTABLE_EXCHANGES:
+            selected = DEFAULT_SELECTED_EXCHANGE
+        return {"selected_exchange": selected}
     except Exception as e:
         logger.error(f"Failed to get exchange config: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Failed to get exchange config: {str(e)}")
@@ -199,7 +204,7 @@ async def set_exchange_config(exchange_data: dict, db: Session = Depends(get_db)
     """Set exchange configuration for default user"""
     try:
         selected_exchange = exchange_data.get("selected_exchange")
-        if not selected_exchange or selected_exchange not in ["hyperliquid", "binance", "okx", "aster"]:
+        if not selected_exchange or selected_exchange not in SELECTABLE_EXCHANGES:
             raise HTTPException(status_code=400, detail="Invalid exchange selection")
 
         # Use default user_id=1 for now

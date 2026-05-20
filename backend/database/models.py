@@ -287,7 +287,7 @@ class AccountStrategyConfig(Base):
     signal_pool_id = Column(Integer, nullable=True)  # Deprecated: use signal_pool_ids instead
     signal_pool_ids = Column(Text, nullable=True)  # JSON array of signal pool IDs, e.g. "[1, 2, 3]"
     enabled = Column(String(10), nullable=False, default="true")
-    scheduled_trigger_enabled = Column(Boolean, nullable=False, default=True)  # Enable/disable scheduled trigger
+    scheduled_trigger_enabled = Column(Boolean, nullable=False, default=False)  # Optional scheduled fallback
     exchange = Column(String(20), nullable=False, default="hyperliquid")  # "hyperliquid" or "binance"
     last_trigger_at = Column(TIMESTAMP, nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())

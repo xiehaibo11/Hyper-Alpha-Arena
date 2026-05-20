@@ -174,12 +174,12 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
               title={t('exchange.supportedExchanges', 'Supported Exchanges')}
             >
               <div className="flex items-center gap-2.5">
-                <ExchangeIcon exchangeId="hyperliquid" size={18} />
-                <span className="text-sm text-foreground">Hyperliquid</span>
-              </div>
-              <div className="flex items-center gap-2.5">
                 <ExchangeIcon exchangeId="binance" size={18} />
                 <span className="text-sm text-foreground">Binance</span>
+              </div>
+              <div className="flex items-center gap-2.5">
+                <ExchangeIcon exchangeId="okx" size={18} />
+                <span className="text-sm text-foreground">OKX</span>
               </div>
             </button>
           </div>

@@ -42,6 +42,16 @@ from services.ai_prompt_shared_tools import (
     execute_get_decision_details,
     execute_query_market_data
 )
+from services.ai_exchange_query_tools import (
+    EXCHANGE_QUERY_TOOLS,
+    EXCHANGE_QUERY_TOOL_NAMES,
+    execute_exchange_query_tool,
+    merge_tool_definitions,
+)
+from services.prompt_validation_service import (
+    _extract_variables_from_text,
+    _validate_variable,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -273,75 +283,27 @@ PROMPT_TOOLS = [
             }
         }
     },
-] + PROMPT_CONTEXT_TOOLS + SHARED_SIGNAL_TOOLS  # Add context tools and shared signal pool tools
+]
+
+PROMPT_TOOLS = merge_tool_definitions(
+    PROMPT_TOOLS,
+    PROMPT_CONTEXT_TOOLS,
+    SHARED_SIGNAL_TOOLS,
+    EXCHANGE_QUERY_TOOLS,
+)
 
 
 # Pre-convert tools for Anthropic format
 PROMPT_TOOLS_ANTHROPIC = convert_tools_to_anthropic(PROMPT_TOOLS)
 
 
-# ============================================================================
-# Valid Variables List (for validation)
-# ============================================================================
-
-# Base variable patterns that are always valid
-VALID_VARIABLE_PATTERNS = [
-    # Account/Position variables
-    r"total_equity", r"available_balance", r"margin_usage_percent", r"maintenance_margin",
-    r"positions_detail", r"recent_trades_summary", r"open_orders_detail",
-    # Context variables
-    r"runtime_minutes", r"current_time_utc", r"trading_environment", r"selected_symbols_detail",
-    r"trigger_context", r"news_section", r"output_format",
-    # Market regime
-    r"market_regime_description", r"trigger_market_regime",
-    r"market_regime(?:_(?:1m|5m|15m|1h|4h|1d))?",
-    # Symbol-specific patterns (BTC, ETH, SOL, etc.)
-    r"[A-Z]+_market_data",
-    r"[A-Z]+_klines_(?:1m|3m|5m|15m|30m|1h|2h|4h|8h|12h|1d|3d|1w|1M)",
-    r"[A-Z]+_market_regime(?:_(?:1m|5m|15m|1h|4h|1d))?",
-    # Technical indicators
-    r"[A-Z]+_(?:MA|EMA|RSI14|RSI7|MACD|BOLL|ATR14|VWAP|OBV|STOCH)_(?:1m|3m|5m|15m|30m|1h|2h|4h|8h|12h|1d)",
-    # Flow indicators
-    r"[A-Z]+_(?:CVD|OI|OI_DELTA|TAKER|FUNDING|DEPTH|IMBALANCE|PRICE_CHANGE|VOLATILITY)_(?:1m|3m|5m|15m|30m|1h|2h|4h|8h|12h|1d)",
-    # Factor variables: preferred {SYMBOL_factor_PERIOD_NAME}, legacy {SYMBOL_factor_NAME}
-    r"[A-Z][A-Z0-9]*_factor_(?:1m|5m|15m|1h|4h|1d)_[A-Za-z][A-Za-z0-9_]*",
-    r"[A-Z][A-Z0-9]*_factor_[A-Za-z][A-Za-z0-9_]*",
-]
-
-
-def _validate_variable(var_name: str) -> bool:
-    """Check if a variable name matches any valid pattern."""
-    for pattern in VALID_VARIABLE_PATTERNS:
-        if re.fullmatch(pattern, var_name):
-            return True
-    return False
-
-
-def _extract_variables_from_text(text: str) -> List[str]:
-    """Extract all {variable} placeholders from text."""
-    # Match {variable_name} but not {{escaped}}
-    pattern = r'\{([^{}]+)\}'
-    matches = re.findall(pattern, text)
-    # Filter out things that look like JSON or format strings
-    variables = []
-    for m in matches:
-        # Skip if it looks like JSON key or has special chars
-        if ':' in m or '"' in m or "'" in m:
-            continue
-        # Skip if it's a number (like array index)
-        if m.isdigit():
-            continue
-        # Handle klines with count: {BTC_klines_1h}(100) -> BTC_klines_1h
-        clean_var = m.split('}')[0].split('(')[0].strip()
-        if clean_var:
-            variables.append(clean_var)
-    return list(set(variables))
-
-
 # Account-related variables that need AI Trader binding (will show placeholders)
 ACCOUNT_VARIABLES = {
     "total_equity", "available_balance", "margin_usage_percent", "maintenance_margin",
-    "positions_detail", "recent_trades_summary", "open_orders_detail",
+    "positions_detail", "positions_structured_json",
+    "recent_trades_summary", "recent_trades_json",
+    "open_orders_detail", "open_orders_json",
+    "api_query_snapshot_json",
     "runtime_minutes", "trading_environment", "trigger_context", "trigger_market_regime",
 }
 
@@ -367,7 +329,7 @@ def _execute_preview_prompt(args: Dict[str, Any], request_id: str) -> str:
 
     # System variables
     context["current_time_utc"] = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-    context["output_format"] = '{"action": "hold|buy|sell|close", "symbol": "BTC", ...}'
+    context["output_format"] = '{"decisions": [{"operation": "hold|buy|sell|close", "symbol": "BTC", ...}]}'
     context["selected_symbols_detail"] = f"Primary: {asset}"
     context["news_section"] = "[News preview not available in prompt generation mode]"
     context["market_regime_description"] = "[Market regime definitions - available at runtime]"
@@ -378,8 +340,12 @@ def _execute_preview_prompt(args: Dict[str, Any], request_id: str) -> str:
     context["margin_usage_percent"] = "[PLACEHOLDER: Will show actual margin usage when bound to AI Trader]"
     context["maintenance_margin"] = "[PLACEHOLDER: Will show actual maintenance margin when bound to AI Trader]"
     context["positions_detail"] = "[PLACEHOLDER: Will show actual positions when bound to AI Trader]"
+    context["positions_structured_json"] = "[]"
     context["recent_trades_summary"] = "[PLACEHOLDER: Will show actual trades when bound to AI Trader]"
+    context["recent_trades_json"] = "[]"
     context["open_orders_detail"] = "[PLACEHOLDER: Will show actual orders when bound to AI Trader]"
+    context["open_orders_json"] = "[]"
+    context["api_query_snapshot_json"] = "{}"
     context["runtime_minutes"] = "[PLACEHOLDER: Will show actual runtime when AI Trader is running]"
     context["trading_environment"] = "[PLACEHOLDER: testnet or mainnet when bound to AI Trader]"
     context["trigger_context"] = "[PLACEHOLDER: Will show signal/scheduled trigger info at runtime]"
@@ -621,6 +587,9 @@ def execute_tool(tool_name: str, args: Dict[str, Any], request_id: str, db: Sess
             factor_name = args.get("factor_name")
             forward_period = args.get("forward_period", "4h")
             return execute_query_factors(db, exchange, symbol, factor_name, forward_period)
+
+        elif tool_name in EXCHANGE_QUERY_TOOL_NAMES:
+            return execute_exchange_query_tool(db, tool_name, args)
 
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})

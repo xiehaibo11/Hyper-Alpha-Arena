@@ -24,7 +24,7 @@ class OKXSymbolSelectionRequest(BaseModel):
 
 @router.get("/symbols/available")
 def list_available_symbols():
-    from services.okx_symbol_service import get_available_symbols_info, MAX_WATCHLIST_SYMBOLS
+    from services.okx_symbol_service import MAX_WATCHLIST_SYMBOLS, get_available_symbols_info
 
     info = get_available_symbols_info()
     return {
@@ -36,7 +36,7 @@ def list_available_symbols():
 
 @router.post("/symbols/refresh")
 def refresh_symbols():
-    from services.okx_symbol_service import refresh_okx_symbols, MAX_WATCHLIST_SYMBOLS
+    from services.okx_symbol_service import MAX_WATCHLIST_SYMBOLS, refresh_okx_symbols
 
     symbols = refresh_okx_symbols()
     return {"symbols": symbols, "count": len(symbols), "max_symbols": MAX_WATCHLIST_SYMBOLS}
@@ -44,14 +44,14 @@ def refresh_symbols():
 
 @router.get("/symbols/watchlist")
 def get_symbol_watchlist():
-    from services.okx_symbol_service import get_selected_symbols, MAX_WATCHLIST_SYMBOLS
+    from services.okx_symbol_service import MAX_WATCHLIST_SYMBOLS, get_selected_symbols
 
     return {"symbols": get_selected_symbols(), "max_symbols": MAX_WATCHLIST_SYMBOLS}
 
 
 @router.put("/symbols/watchlist")
 def update_symbol_watchlist(payload: OKXSymbolSelectionRequest):
-    from services.okx_symbol_service import update_selected_symbols, MAX_WATCHLIST_SYMBOLS
+    from services.okx_symbol_service import MAX_WATCHLIST_SYMBOLS, update_selected_symbols
 
     try:
         symbols = update_selected_symbols(payload.symbols)

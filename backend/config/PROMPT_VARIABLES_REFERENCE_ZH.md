@@ -119,7 +119,12 @@ trigger_interval: 180 seconds
 | `{margin_usage_percent}` | 保证金使用率百分比 | "23.8" |
 | `{maintenance_margin}` | 维持保证金要求 | "$500.00" |
 | `{positions_detail}` | 详细持仓信息，包含杠杆、爆仓价、盈亏 | 完整持仓明细 |
+| `{positions_structured_json}` | 机器可读持仓 JSON。包含币种、方向、数量、入场价/标记价、盈亏、保证金、杠杆、强平距离、持仓时长；当交易所或来源提供时包含 `peak_pnl_pct`。 | JSON数组 |
 | `{recent_trades_summary}` | 最近平仓交易历史 | 最近5笔平仓记录 |
+| `{recent_trades_json}` | 机器可读最近交易 JSON | JSON数组 |
+| `{open_orders_detail}` | 开放订单明细，包含方向、类型、数量、reduce-only、触发条件、下单时间 | 订单列表 |
+| `{open_orders_json}` | 机器可读开放订单 JSON | JSON数组 |
+| `{api_query_snapshot_json}` | 只读 Binance/OKX 公开 API 快照。按监控币种提供有限数量的 ticker、K线、订单簿、资金费率、持仓量、多空情绪、近期成交和历史数据；接口失败时会保留分段错误。 | JSON对象 |
 | `{default_leverage}` | 默认杠杆设置 | "3" |
 | `{real_trading_warning}` | 风险警告信息 | "REAL MONEY TRADING - All decisions execute on live markets" |
 | `{operational_constraints}` | 交易约束和风险规则 | 仓位大小限制、保证金规则 |

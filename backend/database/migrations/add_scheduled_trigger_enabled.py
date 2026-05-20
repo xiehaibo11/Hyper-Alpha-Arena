@@ -4,8 +4,8 @@ Add scheduled_trigger_enabled field to account_strategy_configs table.
 This field allows users to disable scheduled (interval-based) triggers
 while keeping signal pool triggers active.
 
-- True (default): Scheduled trigger enabled, AI runs at trigger_interval
-- False: Scheduled trigger disabled, AI only runs on signal pool triggers
+- True: Scheduled fallback enabled, AI runs at trigger_interval when no signal arrives
+- False (default): Scheduled fallback disabled, AI runs on realtime signal pool triggers
 
 Usage:
     cd /home/wwwroot/hyper-alpha-arena-prod/backend
@@ -35,9 +35,9 @@ def upgrade() -> None:
 
     with engine.connect() as conn:
         if not column_exists(inspector, table, column):
-            # Add column with default TRUE for existing rows
+            # Realtime signal triggers are the primary execution path.
             conn.execute(text(
-                f"ALTER TABLE {table} ADD COLUMN {column} BOOLEAN NOT NULL DEFAULT TRUE"
+                f"ALTER TABLE {table} ADD COLUMN {column} BOOLEAN NOT NULL DEFAULT FALSE"
             ))
             conn.commit()
             print(f"✅ Added {column} to {table}")

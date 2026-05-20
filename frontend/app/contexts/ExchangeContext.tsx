@@ -20,7 +20,7 @@ interface ExchangeProviderProps {
 
 // Storage key for persisting exchange selection
 const STORAGE_KEY = 'hyper-alpha-arena-selected-exchange';
-const SUPPORTED_EXCHANGES: ExchangeId[] = ['hyperliquid', 'binance', 'okx', 'aster'];
+const SUPPORTED_EXCHANGES: ExchangeId[] = ['binance', 'okx', 'aster'];
 
 export function ExchangeProvider({ children }: ExchangeProviderProps) {
   const [currentExchange, setCurrentExchange] = useState<ExchangeId>(DEFAULT_EXCHANGE);
@@ -63,21 +63,6 @@ export function ExchangeProvider({ children }: ExchangeProviderProps) {
   // Exchange data with selection state
   const exchanges: ExchangeInfo[] = [
     {
-      id: 'hyperliquid',
-      name: 'Hyperliquid',
-      displayName: 'Hyperliquid',
-      selectable: true,
-      selected: currentExchange === 'hyperliquid',
-      apiSupported: true,
-      comingSoon: false,
-      logo: '/static/hyperliquid_logo.svg',
-      description: '#1 Decentralized Perpetual DEX',
-      features: ['No KYC Required', 'On-chain Settlement', 'Testnet Available'],
-      referralLink: 'https://app.hyperliquid.xyz/join/HYPERSVIP',
-      buttonText: 'Open Futures',
-      buttonVariant: 'default'
-    },
-    {
       id: 'binance',
       name: 'Binance',
       displayName: 'Binance',
@@ -90,7 +75,7 @@ export function ExchangeProvider({ children }: ExchangeProviderProps) {
       features: ['KYC Required', 'High Liquidity', 'Testnet Available'],
       referralLink: 'https://www.binance.com/en/join?ref=HYPERSVIP',
       buttonText: 'Open Futures',
-      buttonVariant: 'default'
+      buttonVariant: 'outline'
     },
     {
       id: 'okx',
@@ -101,11 +86,11 @@ export function ExchangeProvider({ children }: ExchangeProviderProps) {
       apiSupported: true,
       comingSoon: false,
       logo: '/static/okx_logo.svg',
-      description: 'Global CEX Perpetual Data',
-      features: ['High Liquidity', 'Public Market Data', 'USDT Swaps'],
+      description: 'Global CEX perpetual market data',
+      features: ['Public market data', 'High liquidity', 'USDT swaps'],
       referralLink: 'https://www.okx.com/',
       buttonText: 'Open Futures',
-      buttonVariant: 'default'
+      buttonVariant: 'outline'
     },
     {
       id: 'aster',

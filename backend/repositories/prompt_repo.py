@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from database.models import PromptTemplate, AccountPromptBinding, Account
+from services.prompt_validation_service import assert_prompt_template_valid
 
 
 def get_all_templates(db: Session, include_deleted: bool = False) -> List[PromptTemplate]:
@@ -58,6 +59,9 @@ def update_template(
     template = get_template_by_key(db, key)
     if not template:
         raise ValueError(f"Prompt template with key '{key}' not found")
+
+    assert_prompt_template_valid(template_text)
+
     template.template_text = template_text
     if description is not None:
         template.description = description
@@ -220,6 +224,8 @@ def create_user_template(
     if not template_text:
         default_template = ensure_default_prompt(db)
         template_text = default_template.template_text
+
+    assert_prompt_template_valid(template_text)
 
     new_template = PromptTemplate(
         key=new_key,

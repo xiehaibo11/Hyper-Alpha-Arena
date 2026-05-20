@@ -175,7 +175,12 @@ name=RSI21(id=5) | period=1h | expr=RSI(close, 21) | desc=RSI with 21-period loo
 
 ### Position & Account Variables
 - `{positions_detail}` - Detailed information about all current open positions
+- `{positions_structured_json}` - Machine-readable open positions JSON for exact PnL, margin, leverage, liquidation, and duration fields
 - `{recent_trades_summary}` - Summary of recently closed trades (helps avoid flip-flop behavior)
+- `{recent_trades_json}` - Machine-readable recent trades JSON
+- `{open_orders_detail}` - Detailed current open orders
+- `{open_orders_json}` - Machine-readable open orders JSON
+- `{api_query_snapshot_json}` - Read-only Binance/OKX public API snapshot for monitored symbols
 - `{total_equity}` - Total account equity in USDC
 - `{available_balance}` - Available balance for new positions
 - `{margin_usage_percent}` - Current margin usage percentage
@@ -489,8 +494,8 @@ The generated prompt MUST include:
 1. `=== SESSION CONTEXT ===` with `{runtime_minutes}` and `{current_time_utc}`
 2. `=== TRADING ENVIRONMENT ===` with `{trading_environment}` and real trading warning
 3. `=== ACCOUNT STATE ===` with `{total_equity}`, `{available_balance}`, `{margin_usage_percent}`, `{maintenance_margin}`
-4. `=== OPEN POSITIONS ===` with `{positions_detail}`
-5. `=== RECENT TRADING HISTORY ===` with `{recent_trades_summary}`
+4. `=== OPEN POSITIONS ===` with `{positions_detail}` and optionally `{positions_structured_json}` when exact numeric fields are needed
+5. `=== RECENT TRADING HISTORY ===` with `{recent_trades_summary}` and optionally `{open_orders_detail}`
 6. `=== TRIGGER CONTEXT ===` with `{trigger_context}` (shows what triggered this decision - signal or scheduled)
 7. `=== HYPERLIQUID PRICE LIMITS (CRITICAL) ===` with specific price constraint rules
 

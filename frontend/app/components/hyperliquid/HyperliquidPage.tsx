@@ -7,14 +7,13 @@ import WalletSelector, { ExchangeType, WalletOption } from './WalletSelector';
 import BalanceCard from './BalanceCard';
 import PositionsTable from './PositionsTable';
 import OrderForm from './OrderForm';
-import WalletApiUsage from './WalletApiUsage';
 
 const AVAILABLE_SYMBOLS = ['BTC', 'ETH', 'SOL', 'AVAX', 'MATIC', 'ARB', 'OP'];
 
 export default function HyperliquidPage() {
   const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState('overview');
-  const [exchange, setExchange] = useState<ExchangeType>('hyperliquid');
+  const [exchange, setExchange] = useState<ExchangeType>('binance');
   const [selectedWallet, setSelectedWallet] = useState<WalletOption | null>(null);
   const [refreshTrigger, setRefreshTrigger] = useState(0);
   const [isWalletSwitching, setIsWalletSwitching] = useState(false);
@@ -60,7 +59,6 @@ export default function HyperliquidPage() {
               onChange={(e) => handleExchangeChange(e.target.value as ExchangeType)}
               className="w-full border border-border rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-primary/50 h-10"
             >
-              <option value="hyperliquid">Hyperliquid</option>
               <option value="binance">Binance Futures</option>
             </select>
           </div>
@@ -150,13 +148,6 @@ export default function HyperliquidPage() {
                   onPositionClosed={handlePositionClosed}
                 />
 
-                {exchange === 'hyperliquid' && (
-                  <WalletApiUsage
-                    accountId={selectedWallet.account_id}
-                    environment={selectedWallet.environment}
-                    exchange={exchange}
-                  />
-                )}
               </TabsContent>
 
               <TabsContent value="trade" className="space-y-4">

@@ -1,21 +1,22 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import {
-  Database,
-  TrendingUp,
-  Clock,
-  Target,
-  Info,
-  Sparkles,
-  Percent,
-  Zap
-} from 'lucide-react'
 import { toast } from 'react-hot-toast'
+import {
+  Activity,
+  BarChart3,
+  Database,
+  Info,
+  LineChart,
+  Sparkles,
+  Target,
+  TrendingUp,
+  Zap,
+} from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { useAuth } from '@/contexts/AuthContext'
 
 interface PremiumFeaturesViewProps {
@@ -23,27 +24,139 @@ interface PremiumFeaturesViewProps {
   onPageChange?: (page: string) => void
 }
 
-export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: PremiumFeaturesViewProps) {
-  const { t } = useTranslation()
+const TECHNICAL_INDICATORS = [
+  { name: 'MA5 / MA10 / MA20', category: 'Trend' },
+  { name: 'EMA20 / EMA50 / EMA100', category: 'Trend' },
+  { name: 'VWAP / OBV', category: 'Volume' },
+  { name: 'RSI7 / RSI14 / STOCH', category: 'Momentum' },
+  { name: 'MACD', category: 'Momentum' },
+  { name: 'BOLL / ATR14', category: 'Volatility' },
+]
+
+const DEPTH_OPTIONS = [10, 20, 30, 40, 50, 60]
+
+function getCopy(language: string) {
+  const isZh = language.toLowerCase().startsWith('zh')
+  return isZh
+    ? {
+        title: '高级功能',
+        subtitle: '站内交易工具已直接开放，无需额外开通。',
+        dataTools: '数据与决策',
+        analysisTools: '分析工具',
+        openAccess: '已开放',
+        aiContext: 'AI 决策上下文',
+        realtimeSignals: '实时信号与信号池',
+        quantAnalysis: '量化分析',
+        samplingTitle: '采样池深度',
+        samplingDesc: '增加 AI 可查看的近期市场样本数量，用于趋势和波动判断。',
+        samplingDepth: '采样深度',
+        currentConfig: '当前配置',
+        samplingInterval: '采样间隔',
+        dataCoverage: '数据覆盖',
+        storage: '存储方式',
+        rolling: '滚动缓存',
+        save: '保存配置',
+        saving: '保存中...',
+        saved: '采样深度已保存',
+        loading: '正在加载高级功能配置...',
+        loadFailed: '加载高级功能配置失败',
+        saveFailed: '保存配置失败',
+        loginRequired: '请先登录再保存配置',
+        promptLoginRequired: '请先登录再使用提示词工具',
+        promptTitle: 'AI 提示词生成',
+        promptDesc: '用对话方式生成和优化交易策略提示词。',
+        promptAction: '打开提示词工具',
+        keyFeatures: '能力',
+        promptItems: ['自然语言对话', '多轮策略修订', '自动选择变量', '版本管理'],
+        indicatorTitle: '技术指标套件',
+        indicatorDesc: '按页面选择的币种和周期读取指标，供图表和 AI 分析使用。',
+        periodSupport: '支持周期',
+        openKlines: '打开 K 线分析',
+        quantTitle: 'AI 量化分析',
+        quantDesc: '结合 K 线、指标、市场流和持仓上下文生成分析。',
+        quantItems: ['形态识别', '多周期共振', '动量背离', '支撑阻力聚类', '风险收益评估'],
+        signalTitle: 'AI 信号生成',
+        signalDesc: '通过自然语言创建信号和信号池，并绑定 AI 触发决策。',
+        signalItems: ['自然语言转信号', '阈值参数建议', '多条件 AND/OR 组合', '触发 AI 交易评估'],
+        openSignals: '创建信号',
+        estimatedBoost: '预计提升',
+      }
+    : {
+        title: 'Advanced Features',
+        subtitle: 'All in-site trading tools are open for this deployment.',
+        dataTools: 'Data and Decision',
+        analysisTools: 'Analysis Tools',
+        openAccess: 'Open',
+        aiContext: 'AI decision context',
+        realtimeSignals: 'Realtime signals and pools',
+        quantAnalysis: 'Quant analysis',
+        samplingTitle: 'Sampling Pool Depth',
+        samplingDesc: 'Increase recent market samples available to AI for trend and volatility checks.',
+        samplingDepth: 'Sampling depth',
+        currentConfig: 'Current Configuration',
+        samplingInterval: 'Sampling Interval',
+        dataCoverage: 'Data Coverage',
+        storage: 'Storage',
+        rolling: 'Rolling buffer',
+        save: 'Save Configuration',
+        saving: 'Saving...',
+        saved: 'Sampling depth saved',
+        loading: 'Loading advanced configuration...',
+        loadFailed: 'Failed to load advanced configuration',
+        saveFailed: 'Failed to save configuration',
+        loginRequired: 'Please log in before saving configuration',
+        promptLoginRequired: 'Please log in to use the prompt tool',
+        promptTitle: 'AI Prompt Generator',
+        promptDesc: 'Create and refine trading strategy prompts through conversation.',
+        promptAction: 'Open Prompt Tool',
+        keyFeatures: 'Capabilities',
+        promptItems: ['Natural language dialogue', 'Multi-turn strategy editing', 'Automatic variable selection', 'Version management'],
+        indicatorTitle: 'Technical Indicator Suite',
+        indicatorDesc: 'Read indicators for the selected symbol and timeframe for charts and AI analysis.',
+        periodSupport: 'Supported Periods',
+        openKlines: 'Open K-line Analysis',
+        quantTitle: 'AI Quant Analysis',
+        quantDesc: 'Combine K-lines, indicators, market flow, and position context into analysis.',
+        quantItems: ['Pattern recognition', 'Multi-timeframe confluence', 'Momentum divergence', 'Support/resistance clustering', 'Risk/reward assessment'],
+        signalTitle: 'AI Signal Generator',
+        signalDesc: 'Create signals and signal pools with natural language, then bind them to AI decisions.',
+        signalItems: ['Natural language to signal', 'Threshold suggestions', 'AND/OR condition groups', 'Trigger AI trade evaluation'],
+        openSignals: 'Create Signal',
+        estimatedBoost: 'Estimated boost',
+      }
+}
+
+function estimateBoost(depth: number) {
+  if (depth <= 10) return 0
+  const steps = (depth - 10) / 10
+  return Math.round(Math.pow(2, steps) * 10 - 10)
+}
+
+function CapabilityList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div className="space-y-1 p-3 bg-muted/50 rounded-lg text-xs">
+      <div className="font-medium flex items-center gap-2">
+        <Info className="w-3 h-3" />
+        {title}
+      </div>
+      <div className="space-y-0.5 text-muted-foreground ml-5">
+        {items.map((item) => (
+          <div key={item}>- {item}</div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export default function PremiumFeaturesView({ onPageChange }: PremiumFeaturesViewProps) {
+  const { i18n } = useTranslation()
   const { user } = useAuth()
+  const copy = useMemo(() => getCopy(i18n.language), [i18n.language])
 
   const [isLoading, setIsLoading] = useState(true)
   const [isSaving, setIsSaving] = useState(false)
   const [samplingDepth, setSamplingDepth] = useState(10)
   const [samplingInterval, setSamplingInterval] = useState(18)
-
-  // All supported technical indicators
-  const technicalIndicators = [
-    { name: 'MA5/10/20', description: 'Simple Moving Averages for trend identification', category: 'Trend' },
-    { name: 'EMA20/50/100', description: 'Exponential Moving Averages for responsive trend tracking', category: 'Trend' },
-    { name: 'MACD', description: 'Moving Average Convergence Divergence for momentum analysis', category: 'Momentum' },
-    { name: 'RSI7/14', description: 'Relative Strength Index for overbought/oversold detection', category: 'Momentum' },
-    { name: 'BOLL', description: 'Bollinger Bands for volatility and price extremes', category: 'Volatility' },
-    { name: 'ATR14', description: 'Average True Range for volatility measurement', category: 'Volatility' },
-  ]
-
-  // Self-hosted deployment: all advanced capabilities are unlocked locally.
-  const isPremium = true
 
   useEffect(() => {
     fetchGlobalConfig()
@@ -52,205 +165,118 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
   const fetchGlobalConfig = async () => {
     try {
       setIsLoading(true)
-
-      // Fetch global sampling configuration
       const response = await fetch('/api/config/global-sampling')
-      if (!response.ok) {
-        throw new Error('Failed to fetch global sampling configuration')
-      }
+      if (!response.ok) throw new Error(copy.loadFailed)
       const data = await response.json()
-
       setSamplingDepth(data.sampling_depth || 10)
       setSamplingInterval(data.sampling_interval || 18)
-
-      console.log('Global config loaded:', data)
     } catch (error) {
       console.error('Failed to fetch global config:', error)
-      toast.error('Failed to load sampling configuration')
+      toast.error(copy.loadFailed)
     } finally {
       setIsLoading(false)
     }
   }
 
   const handlePromptToolClick = () => {
-    // Check if user is logged in
     if (!user) {
-      toast.error('Please log in to use this feature')
+      toast.error(copy.promptLoginRequired)
       return
     }
-
-    // Limited Time Free - skip premium check
-    // Navigate to prompt page
     onPageChange?.('prompt-management')
   }
 
-  const handleSaveConfiguration = async (section: string) => {
-    if (section === 'sampling-pool') {
-      // Check if user is logged in
-      if (!user) {
-        toast.error('Please log in to save configuration')
-        // Could add login redirect logic here
-        return
+  const handleSaveConfiguration = async () => {
+    if (!user) {
+      toast.error(copy.loginRequired)
+      return
+    }
+
+    setIsSaving(true)
+    try {
+      const response = await fetch('/api/config/global-sampling', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sampling_depth: samplingDepth }),
+      })
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}))
+        throw new Error(errorData.detail || copy.saveFailed)
       }
 
-      setIsSaving(true)
-      try {
-        const response = await fetch(`/api/config/global-sampling`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            sampling_depth: samplingDepth
-          })
-        })
-
-        if (!response.ok) {
-          const errorData = await response.json()
-          throw new Error(errorData.detail || 'Failed to save configuration')
-        }
-
-        const result = await response.json()
-        toast.success('Sampling depth configuration saved successfully!')
-
-        // Refresh configuration
-        await fetchGlobalConfig()
-      } catch (error) {
-        console.error('Failed to save sampling configuration:', error)
-        toast.error(error instanceof Error ? error.message : 'Failed to save configuration')
-      } finally {
-        setIsSaving(false)
-      }
-    } else {
-      // For not-yet-implemented features
-      toast('This feature is coming soon!', { icon: '🚧' })
+      toast.success(copy.saved)
+      await fetchGlobalConfig()
+    } catch (error) {
+      console.error('Failed to save sampling configuration:', error)
+      toast.error(error instanceof Error ? error.message : copy.saveFailed)
+    } finally {
+      setIsSaving(false)
     }
   }
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-full">
-        <div className="text-muted-foreground">{t('premium.loading', 'Loading premium features...')}</div>
+        <div className="text-muted-foreground">{copy.loading}</div>
       </div>
     )
   }
 
   return (
     <div className="flex flex-col h-full">
-      {/* Header Section */}
-      <div className="px-6 py-4 border-b min-h-[110px]">
-        <div className="space-y-2">
-          {/* Title row with subscription card */}
-          <div className="flex items-stretch gap-6">
-            <div className="space-y-2">
-              <div className="flex items-center gap-3">
-                <h1 className="text-3xl font-bold">{t('premium.title', 'Advanced Features')}</h1>
-                <Badge className="bg-green-500 text-white text-sm">
-                  {t('premium.selfHostedUnlocked', 'Self-hosted unlocked')}
-                </Badge>
-              </div>
-              <p className="text-muted-foreground">
-                {t('premium.subscriptionDesc', 'Self-hosted deployment has unlocked all advanced features:')}
-              </p>
-              <div className="flex flex-wrap gap-3 text-sm">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Target className="w-4 h-4" />
-                  <span>{t('premium.advancedDataAnalysis', 'Advanced data analysis')}</span>
-                </div>
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Clock className="w-4 h-4" />
-                  <span>{t('premium.prioritySupport', 'Priority technical support')}</span>
-                </div>
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <TrendingUp className="w-4 h-4" />
-                  <span>{t('premium.featureRequestPriority', 'Feature request priority')}</span>
-                </div>
-              </div>
+      <div className="px-6 py-5 border-b">
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-3xl font-bold">{copy.title}</h1>
+            <Badge className="bg-green-600 text-white">{copy.openAccess}</Badge>
+          </div>
+          <p className="text-muted-foreground">{copy.subtitle}</p>
+          <div className="flex flex-wrap gap-3 text-sm">
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Target className="w-4 h-4" />
+              <span>{copy.aiContext}</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <Activity className="w-4 h-4" />
+              <span>{copy.realtimeSignals}</span>
+            </div>
+            <div className="flex items-center gap-2 text-muted-foreground">
+              <TrendingUp className="w-4 h-4" />
+              <span>{copy.quantAnalysis}</span>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Features Container with scroll */}
       <div className="flex-1 overflow-y-auto p-6">
         <div className="space-y-8">
-          {/* Trading Improvement Section */}
           <section className="space-y-4">
             <div className="flex items-center gap-2">
               <Database className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold">{t('premium.tradingImprovement', 'Trading Improvement')}</h2>
+              <h2 className="text-xl font-semibold">{copy.dataTools}</h2>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {/* Service Fee Card */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
               <Card>
                 <CardHeader className="pb-3">
-                  <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      <Percent className="w-5 h-5 text-blue-500" />
-                      {t('premium.serviceFee', 'Service Fee')}
-                      {isPremium && (
-                        <Badge className="bg-green-500 text-white text-xs">FREE</Badge>
-                      )}
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      {t('premium.serviceFeeDesc', 'A small fee per trade supports long-term project development and maintenance')}
-                    </CardDescription>
-                  </div>
-                </CardHeader>
-                <CardContent className="space-y-3">
-                  <div className="h-[200px] p-3 bg-muted/50 rounded-lg text-xs flex flex-col items-center justify-center">
-                    <div className="font-medium flex items-center gap-2 mb-4">
-                      <Info className="w-4 h-4" />
-                      {t('premium.currentRate', 'Current Rate')}
-                    </div>
-                    <div className="text-center">
-                      <div className="text-3xl font-bold text-foreground mb-2">
-                        {isPremium ? (
-                          <>
-                            <span className="line-through text-muted-foreground text-xl mr-2">0.03%</span>
-                            0%
-                          </>
-                        ) : (
-                          '0.03%'
-                        )}
-                      </div>
-                      <div className="text-sm text-muted-foreground mb-2">{t('premium.perTrade', 'per trade')}</div>
-                      {isPremium ? (
-                        <div className="text-green-600 font-medium">{t('premium.premiumDiscount', 'Premium discount applied')}</div>
-                      ) : (
-                        <div className="text-muted-foreground">{t('premium.standardRate', 'Standard rate for non-subscribers')}</div>
-                      )}
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="pb-3">
-                  <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      {t('premium.samplingPoolDepth', '60+ Sampling Pool Depth')}
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      {t('premium.samplingPoolDesc', 'Provide AI with deeper historical data for better trend analysis')}
-                    </CardDescription>
-                  </div>
+                  <CardTitle className="text-lg">{copy.samplingTitle}</CardTitle>
+                  <CardDescription className="text-xs">{copy.samplingDesc}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
                   <div className="space-y-2">
                     <div className="flex items-center justify-between">
-                      <span className="text-xs font-medium">{t('premium.samplingDepth', 'Sampling Depth (points)')}</span>
-                      <span className="text-xs text-muted-foreground">{samplingDepth} points</span>
+                      <span className="text-xs font-medium">{copy.samplingDepth}</span>
+                      <span className="text-xs text-muted-foreground">{samplingDepth}</span>
                     </div>
-                    <div className="flex gap-2">
-                      {[10, 20, 30, 40, 50, 60].map((depth) => (
+                    <div className="grid grid-cols-6 gap-2">
+                      {DEPTH_OPTIONS.map((depth) => (
                         <Button
                           key={depth}
                           variant={samplingDepth === depth ? 'default' : 'outline'}
                           size="sm"
                           onClick={() => setSamplingDepth(depth)}
-                          className="flex-1 h-7 text-xs"
+                          className="h-8 text-xs"
                         >
                           {depth}
                         </Button>
@@ -261,246 +287,107 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
                   <div className="space-y-1 p-3 bg-muted/50 rounded-lg text-xs">
                     <div className="font-medium flex items-center gap-2">
                       <Info className="w-3 h-3" />
-                      {t('premium.currentConfig', 'Current Configuration')}
+                      {copy.currentConfig}
                     </div>
                     <div className="space-y-0.5 text-muted-foreground ml-5">
-                      <div>• {t('premium.samplingInterval', 'Sampling Interval')}: {samplingInterval} seconds</div>
-                      <div>• {t('premium.dataCoverage', 'Data Coverage')}: {((samplingDepth * samplingInterval) / 60).toFixed(1)} minutes of price history</div>
-                      <div>• {t('premium.storage', 'Storage')}: {t('premium.minimalRolling', 'Minimal (rolling buffer)')}</div>
-                      <div>• {t('premium.estimatedAccuracyBoost', 'Estimated Accuracy Boost')}: +{(() => {
-                        const baseDepth = 10;
-                        if (samplingDepth <= baseDepth) return 0;
-                        const steps = (samplingDepth - baseDepth) / 10;
-                        return Math.round(Math.pow(2, steps) * 10 - 10);
-                      })()}%</div>
+                      <div>- {copy.samplingInterval}: {samplingInterval}s</div>
+                      <div>- {copy.dataCoverage}: {((samplingDepth * samplingInterval) / 60).toFixed(1)}m</div>
+                      <div>- {copy.storage}: {copy.rolling}</div>
+                      <div>- {copy.estimatedBoost}: +{estimateBoost(samplingDepth)}%</div>
                     </div>
                   </div>
 
-                  <Button
-                    onClick={() => handleSaveConfiguration('sampling-pool')}
-                    disabled={isSaving}
-                    className="w-full h-8 text-xs"
-                  >
-                    {isSaving ? t('premium.saving', 'Saving...') : t('premium.saveConfig', 'Save Configuration')}
+                  <Button onClick={handleSaveConfiguration} disabled={isSaving} className="w-full h-8 text-xs">
+                    {isSaving ? copy.saving : copy.save}
                   </Button>
                 </CardContent>
               </Card>
 
-              {/* AI Prompt Generator */}
               <Card>
                 <CardHeader className="pb-3">
-                  <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      <Sparkles className="w-5 h-5 text-purple-500" />
-                      {t('premium.aiPromptGenerator', 'AI Prompt Generator')}
-                      <Badge className="bg-green-500 text-white text-xs">{t('premium.limitedTimeFree', 'Limited Time Free')}</Badge>
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      {t('premium.aiPromptGeneratorDesc', 'Generate professional trading strategy prompts through natural language conversation with AI')}
-                    </CardDescription>
-                  </div>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Sparkles className="w-5 h-5 text-purple-500" />
+                    {copy.promptTitle}
+                  </CardTitle>
+                  <CardDescription className="text-xs">{copy.promptDesc}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="space-y-2 p-3 bg-muted/50 rounded-lg text-xs">
-                    <div className="font-medium flex items-center gap-2">
-                      <Info className="w-3 h-3" />
-                      {t('premium.keyFeatures', 'Key Features')}
-                    </div>
-                    <div className="space-y-0.5 text-muted-foreground ml-5">
-                      <div>• {t('premium.naturalLanguageInterface', 'Natural language conversation interface')}</div>
-                      <div>• {t('premium.noTemplateKnowledge', 'No template syntax knowledge required')}</div>
-                      <div>• {t('premium.multiTurnDialogue', 'Multi-turn dialogue for strategy refinement')}</div>
-                      <div>• {t('premium.autoVariableSelection', 'Automatic variable selection and optimization')}</div>
-                      <div>• {t('premium.versionManagement', 'Version management for prompt iterations')}</div>
-                    </div>
-                  </div>
-
+                  <CapabilityList title={copy.keyFeatures} items={copy.promptItems} />
                   <Button
                     onClick={handlePromptToolClick}
-                    className="w-full h-8 text-xs bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-600 hover:to-pink-600 text-white border-0"
+                    className="w-full h-8 text-xs bg-purple-600 hover:bg-purple-700 text-white"
                   >
                     <Sparkles className="w-3 h-3 mr-1" />
-                    {t('premium.startWritePrompt', 'Start Write Strategy Prompt')}
+                    {copy.promptAction}
                   </Button>
                 </CardContent>
               </Card>
             </div>
           </section>
 
-          {/* Analysis Tools Section */}
           <section className="space-y-4">
             <div className="flex items-center gap-2">
-              <TrendingUp className="w-5 h-5 text-primary" />
-              <h2 className="text-xl font-semibold">{t('premium.analysisTools', 'Analysis Tools')}</h2>
+              <BarChart3 className="w-5 h-5 text-primary" />
+              <h2 className="text-xl font-semibold">{copy.analysisTools}</h2>
             </div>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {/* Advanced Indicators */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
               <Card>
                 <CardHeader className="pb-3">
-                  <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      {t('premium.technicalIndicatorsSuite', 'Technical Indicators Suite')}
-                      <Badge className="bg-green-500 text-white text-xs">{t('premium.limitedTimeFree', 'Limited Time Free')}</Badge>
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      {t('premium.technicalIndicatorsDesc', '11 professional-grade technical indicators across trend, momentum, and volatility analysis')}
-                    </CardDescription>
-                  </div>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <LineChart className="w-5 h-5 text-blue-500" />
+                    {copy.indicatorTitle}
+                  </CardTitle>
+                  <CardDescription className="text-xs">{copy.indicatorDesc}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="space-y-2">
-                    {technicalIndicators.map((indicator, index) => (
-                      <div key={index} className="flex items-start gap-2 p-2 border rounded-lg">
-                        <div className="flex-1">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs font-semibold">{indicator.name}</span>
-                            <Badge variant="outline" className="text-[10px] px-1 py-0">{indicator.category}</Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {indicator.description}
-                          </p>
-                        </div>
+                  <div className="grid grid-cols-1 gap-2">
+                    {TECHNICAL_INDICATORS.map((indicator) => (
+                      <div key={indicator.name} className="flex items-center justify-between gap-2 p-2 border rounded-lg text-xs">
+                        <span className="font-medium">{indicator.name}</span>
+                        <Badge variant="outline" className="text-[10px] px-1 py-0">{indicator.category}</Badge>
                       </div>
                     ))}
                   </div>
-
                   <div className="p-2 bg-muted/50 rounded-lg text-xs text-muted-foreground">
-                    <div className="font-medium mb-1">{t('premium.multiPeriodSupport', 'Multi-Period Support')}</div>
-                    <div>Available on 1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 12h, 1d, 3d, 1w, 1M timeframes</div>
+                    <div className="font-medium mb-1">{copy.periodSupport}</div>
+                    <div>1m, 3m, 5m, 15m, 30m, 1h, 2h, 4h, 8h, 12h, 1d, 3d, 1w, 1M</div>
                   </div>
-
-                  <Button
-                    onClick={() => onPageChange?.('klines')}
-                    className="w-full h-8 text-xs"
-                  >
-                    {t('premium.tryNow', 'Try Now')}
+                  <Button onClick={() => onPageChange?.('klines')} className="w-full h-8 text-xs">
+                    {copy.openKlines}
                   </Button>
                 </CardContent>
               </Card>
 
-              {/* AI K-line Analysis */}
               <Card>
                 <CardHeader className="pb-3">
-                  <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      {t('premium.aiQuantAnalysis', 'AI Quantitative Analysis')}
-                      <Badge className="bg-green-500 text-white text-xs">{t('premium.limitedTimeFree', 'Limited Time Free')}</Badge>
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      {t('premium.aiQuantAnalysisDesc', 'Deep learning-powered market microstructure analysis with multi-dimensional signal extraction')}
-                    </CardDescription>
-                  </div>
+                  <CardTitle className="text-lg">{copy.quantTitle}</CardTitle>
+                  <CardDescription className="text-xs">{copy.quantDesc}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="space-y-2">
-                    <div className="p-2 bg-muted/50 rounded-lg">
-                      <div className="text-xs font-semibold mb-1">{t('premium.patternRecognition', 'Pattern Recognition Engine')}</div>
-                      <div className="text-xs text-muted-foreground">
-                        • {t('premium.classicalFormations', 'Classical formations: Head & Shoulders, Double Top/Bottom, Triangles, Wedges')}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        • {t('premium.candlestickPatterns', 'Candlestick patterns: Doji, Engulfing, Hammer, Shooting Star, Morning/Evening Star')}
-                      </div>
-                    </div>
-
-                    <div className="p-2 bg-muted/50 rounded-lg">
-                      <div className="text-xs font-semibold mb-1">{t('premium.multiTimeframeAnalysis', 'Multi-Timeframe Confluence Analysis')}</div>
-                      <div className="text-xs text-muted-foreground">
-                        • {t('premium.crossPeriodTrend', 'Cross-period trend alignment detection (1m to 1M)')}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        • {t('premium.supportResistance', 'Support/Resistance level clustering across timeframes')}
-                      </div>
-                    </div>
-
-                    <div className="p-2 bg-muted/50 rounded-lg">
-                      <div className="text-xs font-semibold mb-1">{t('premium.quantSignalGeneration', 'Quantitative Signal Generation')}</div>
-                      <div className="text-xs text-muted-foreground">
-                        • {t('premium.momentumDivergence', 'Momentum divergence detection (price vs. indicator)')}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        • {t('premium.volumePriceAnalysis', 'Volume-price relationship analysis')}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        • {t('premium.marketStructureBreak', 'Market structure break identification')}
-                      </div>
-                    </div>
-
-                    <div className="p-2 bg-muted/50 rounded-lg">
-                      <div className="text-xs font-semibold mb-1">{t('premium.actionableInsights', 'Actionable Trading Insights')}</div>
-                      <div className="text-xs text-muted-foreground">
-                        • {t('premium.entryExitZones', 'Entry/Exit zone recommendations with probability scoring')}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        • {t('premium.riskRewardCalc', 'Risk/Reward ratio calculation and position sizing guidance')}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        • {t('premium.marketRegime', 'Market regime classification (trending/ranging/volatile)')}
-                      </div>
-                    </div>
-                  </div>
-
-                  <Button
-                    onClick={() => onPageChange?.('klines')}
-                    className="w-full h-8 text-xs"
-                  >
-                    {t('premium.launchAnalysis', 'Launch Analysis')}
+                  <CapabilityList title={copy.keyFeatures} items={copy.quantItems} />
+                  <Button onClick={() => onPageChange?.('klines')} className="w-full h-8 text-xs">
+                    {copy.openKlines}
                   </Button>
                 </CardContent>
               </Card>
 
-              {/* AI Signal Generator */}
-              <Card className="border text-card-foreground shadow">
+              <Card>
                 <CardHeader className="pb-3">
-                  <div className="space-y-1">
-                    <CardTitle className="flex items-center gap-2 text-lg">
-                      <Zap className="w-5 h-5 text-yellow-500" />
-                      {t('premium.aiSignalGenerator', 'AI Signal Generator')}
-                      <Badge className="bg-green-500 text-white text-xs">{t('premium.limitedTimeFree', 'Limited Time Free')}</Badge>
-                    </CardTitle>
-                    <CardDescription className="text-xs">
-                      {t('premium.aiSignalGeneratorDesc', 'Transform trading ideas into executable signals using natural language - no technical knowledge required')}
-                    </CardDescription>
-                  </div>
+                  <CardTitle className="flex items-center gap-2 text-lg">
+                    <Zap className="w-5 h-5 text-yellow-500" />
+                    {copy.signalTitle}
+                  </CardTitle>
+                  <CardDescription className="text-xs">{copy.signalDesc}</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="space-y-2">
-                    <div className="p-2 bg-muted/50 rounded-lg">
-                      <div className="text-xs font-semibold mb-1">{t('premium.naturalLanguageToSignal', 'Natural Language to Signal')}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {t('premium.naturalLanguageToSignalDesc', 'Describe what you want to monitor: "Alert me when BTC open interest surges with high buying pressure"')}
-                      </div>
-                    </div>
-
-                    <div className="p-2 bg-muted/50 rounded-lg">
-                      <div className="text-xs font-semibold mb-1">{t('premium.smartParamOptimization', 'Smart Parameter Optimization')}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {t('premium.smartParamOptimizationDesc', 'AI analyzes market data to suggest optimal thresholds - no guesswork needed')}
-                      </div>
-                    </div>
-
-                    <div className="p-2 bg-muted/50 rounded-lg">
-                      <div className="text-xs font-semibold mb-1">{t('premium.multiConditionLogic', 'Multi-Condition Logic')}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {t('premium.multiConditionLogicDesc', 'Combine CVD, OI, funding rate, order flow into sophisticated AND/OR signal pools')}
-                      </div>
-                    </div>
-
-                    <div className="p-2 bg-muted/50 rounded-lg">
-                      <div className="text-xs font-semibold mb-1">{t('premium.triggerAiTrading', 'Trigger AI Trading')}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {t('premium.triggerAiTradingDesc', 'Bind signals to AI accounts - when conditions hit, AI evaluates and executes')}
-                      </div>
-                    </div>
-                  </div>
-
+                  <CapabilityList title={copy.keyFeatures} items={copy.signalItems} />
                   <Button
                     onClick={() => onPageChange?.('signal-management')}
-                    className="w-full h-8 text-xs bg-gradient-to-r from-yellow-500 to-orange-500 hover:from-yellow-600 hover:to-orange-600 text-white border-0"
+                    className="w-full h-8 text-xs bg-yellow-600 hover:bg-yellow-700 text-white"
                   >
                     <Zap className="w-3 h-3 mr-1" />
-                    {t('premium.createSignalWithAI', 'Create Signal with AI')}
+                    {copy.openSignals}
                   </Button>
                 </CardContent>
               </Card>

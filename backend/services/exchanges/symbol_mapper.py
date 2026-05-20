@@ -17,7 +17,7 @@ class SymbolMapper:
 
     Internal format: "BTC", "ETH" (base currency only)
     Binance format: "BTCUSDT", "ETHUSDT" (with quote currency suffix)
-    OKX format: "BTC-USDT-SWAP", "ETH-USDT-SWAP" for USDT perpetual swaps
+    OKX format: "BTC-USDT-SWAP", "ETH-USDT-SWAP" for USDT swaps
     Hyperliquid format: "BTC", "ETH" for standard perps, "xyz:GOLD" for HIP-3
     """
 
@@ -39,7 +39,7 @@ class SymbolMapper:
         "okx": {
             "BTC": "BTC-USDT-SWAP",
             "ETH": "ETH-USDT-SWAP",
-        }
+        },
     }
 
     REVERSE_MAPPINGS = {
@@ -96,7 +96,6 @@ class SymbolMapper:
             return symbol
 
         symbol = str(symbol or "").upper()
-
         if exchange == "okx":
             if symbol.endswith("-USDT-SWAP"):
                 return symbol
@@ -108,16 +107,13 @@ class SymbolMapper:
                 return f"{symbol[:-4]}-USDT-SWAP"
             return f"{symbol}-USDT-SWAP"
 
-        quote = cls.EXCHANGE_QUOTE_CURRENCY.get(exchange, "")
-        if quote and symbol.endswith(quote):
-            return symbol
-
         # Check special mappings first
         special = cls.SPECIAL_MAPPINGS.get(exchange, {})
         if symbol in special:
             return special[symbol]
 
         # Default conversion: append quote currency
+        quote = cls.EXCHANGE_QUOTE_CURRENCY.get(exchange, "")
         if quote:
             return f"{symbol}{quote}"
 

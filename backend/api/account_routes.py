@@ -109,14 +109,14 @@ def _serialize_strategy(account: Account, strategy, db: Session = None) -> Strat
             AccountPromptBinding.is_deleted != True
         ).first()
         if not prompt_binding:
-            warning = "No prompt template bound. Scheduled and signal triggers will not execute until a prompt is configured."
+            warning = "No prompt template bound. Automatic triggers will not execute until a prompt is configured."
 
     return StrategyConfig(
         trigger_mode="unified",
         interval_seconds=strategy.trigger_interval or DEFAULT_STRATEGY_TRIGGER_INTERVAL_SECONDS,
         tick_batch_size=1,
         enabled=(strategy.enabled == "true" and account.auto_trading_enabled == "true"),
-        scheduled_trigger_enabled=strategy.scheduled_trigger_enabled,
+        scheduled_trigger_enabled=bool(strategy.scheduled_trigger_enabled),
         exchange=getattr(strategy, 'exchange', None) or "hyperliquid",
         last_trigger_at=last_iso,
         price_threshold=strategy.price_threshold or 1.0,
@@ -332,6 +332,7 @@ def get_account_strategy(account_id: int, db: Session = Depends(get_db)):
             price_threshold=1.0,
             trigger_interval=DEFAULT_STRATEGY_TRIGGER_INTERVAL_SECONDS,
             enabled=(account.auto_trading_enabled == "true"),
+            scheduled_trigger_enabled=False,
             exchange=default_exchange,
         )
         # Reload strategies after creation

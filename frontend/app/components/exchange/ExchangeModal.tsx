@@ -27,15 +27,6 @@ export default function ExchangeModal({ isOpen, onClose }: ExchangeModalProps) {
     features: string[]
     buttonText: string
   }> = {
-    hyperliquid: {
-      description: t('exchange.hyperliquid.description', '#1 Decentralized Perpetual DEX'),
-      features: [
-        t('exchange.hyperliquid.feature1', 'No KYC Required'),
-        t('exchange.hyperliquid.feature2', 'On-chain Settlement'),
-        t('exchange.hyperliquid.feature3', 'Testnet Available'),
-      ],
-      buttonText: t('exchange.hyperliquid.button', 'Open Futures'),
-    },
     binance: {
       description: t('exchange.binance.description', '#1 Global CEX by Volume'),
       features: [
@@ -43,7 +34,7 @@ export default function ExchangeModal({ isOpen, onClose }: ExchangeModalProps) {
         t('exchange.binance.feature2', 'High Liquidity'),
         t('exchange.binance.feature3', 'Testnet Available'),
       ],
-      buttonText: t('exchange.binance.button', 'Register First'),
+      buttonText: t('exchange.binance.button', 'Open Futures'),
     },
     okx: {
       description: t('exchange.okx.description', 'Global CEX perpetual market data'),
@@ -58,18 +49,6 @@ export default function ExchangeModal({ isOpen, onClose }: ExchangeModalProps) {
 
   // Data collection info for each exchange
   const dataInfo = {
-    hyperliquid: {
-      method: 'WebSocket',
-      icon: Zap,
-      color: 'text-green-500',
-      items: [
-        { label: t('exchange.data.kline', 'K-line'), value: t('exchange.data.realtime', 'Real-time') },
-        { label: t('exchange.data.takerVolume', 'Taker Volume'), value: '15s' },
-        { label: t('exchange.data.oi', 'Open Interest'), value: '15s' },
-        { label: t('exchange.data.funding', 'Funding Rate'), value: '15s' },
-        { label: t('exchange.data.orderbook', 'Orderbook'), value: '15s' },
-      ]
-    },
     binance: {
       method: 'WebSocket + REST',
       icon: Zap,
@@ -85,10 +64,10 @@ export default function ExchangeModal({ isOpen, onClose }: ExchangeModalProps) {
     okx: {
       method: 'REST',
       icon: Clock,
-      color: 'text-slate-500',
+      color: 'text-blue-500',
       items: [
-        { label: t('exchange.data.kline', 'K-line'), value: t('exchange.data.onDemand', 'On demand') },
-        { label: t('exchange.data.takerVolume', 'Taker Volume'), value: 'REST 5m' },
+        { label: t('exchange.data.kline', 'K-line'), value: 'On demand' },
+        { label: t('exchange.data.takerVolume', 'Taker Volume'), value: 'REST 300s' },
         { label: t('exchange.data.oi', 'Open Interest'), value: 'REST 60s' },
         { label: t('exchange.data.funding', 'Funding Rate'), value: 'REST 60s' },
         { label: t('exchange.data.orderbook', 'Orderbook'), value: 'REST 15s' },
@@ -114,9 +93,9 @@ export default function ExchangeModal({ isOpen, onClose }: ExchangeModalProps) {
 
         {/* Exchange Cards */}
         <div className="p-6">
-          <div className="grid gap-6 md:grid-cols-3">
-            {exchanges.filter(ex => ex.id === 'hyperliquid' || ex.id === 'binance' || ex.id === 'okx').map((exchange) => {
-              const info = dataInfo[exchange.id as 'hyperliquid' | 'binance' | 'okx']
+          <div className="grid gap-6 md:grid-cols-2">
+            {exchanges.filter(ex => ex.id === 'binance' || ex.id === 'okx').map((exchange) => {
+              const info = dataInfo[exchange.id as 'binance' | 'okx']
               const DataIcon = info?.icon || Clock
 
               return (
@@ -168,7 +147,7 @@ export default function ExchangeModal({ isOpen, onClose }: ExchangeModalProps) {
 
                   {/* Register Button */}
                   <Button
-                    variant={exchange.id === 'hyperliquid' ? 'default' : 'outline'}
+                    variant={exchange.id === 'binance' ? 'default' : 'outline'}
                     className="w-full"
                     onClick={() => handleExchangeClick(exchange.referralLink)}
                   >

@@ -26,7 +26,7 @@ export interface WalletOption {
 }
 
 interface WalletSelectorProps {
-  exchange: ExchangeType
+  exchange?: ExchangeType
   selectedWalletId: number | null
   onSelect: (wallet: WalletOption) => void
   showLabel?: boolean
@@ -34,7 +34,7 @@ interface WalletSelectorProps {
 }
 
 export default function WalletSelector({
-  exchange,
+  exchange = 'binance',
   selectedWalletId,
   onSelect,
   showLabel = true,

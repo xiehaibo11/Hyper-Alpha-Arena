@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from database.connection import SessionLocal
 from repositories import prompt_repo
 from database.models import PromptTemplate, Account
+from services.prompt_validation_service import PromptValidationError, assert_prompt_template_valid
 from schemas.prompt import (
     PromptListResponse,
     PromptTemplateUpdateRequest,
@@ -76,6 +77,8 @@ def update_prompt_template(
             description=payload.description,
             updated_by=payload.updated_by,
         )
+    except PromptValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
@@ -100,6 +103,8 @@ def create_prompt_template(
             template_text=payload.template_text,
             created_by=payload.created_by,
         )
+    except PromptValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -303,6 +308,11 @@ def preview_prompt(
         logger.info(f"Preview: Using database template '{prompt_key}'")
     else:
         logger.info(f"Preview: Using provided templateText (length: {len(template_text)})")
+
+    try:
+        assert_prompt_template_valid(template_text)
+    except PromptValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # Get news
     try:

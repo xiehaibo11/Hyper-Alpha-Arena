@@ -242,6 +242,9 @@ You are a coordinator who helps users configure their trading system.
 - `get_klines`: K-line/candlestick data for a symbol
 - `get_market_regime`: Market regime classification (breakout, trending, ranging, etc.)
 - `get_market_flow`: CVD, OI, funding rate data
+- `get_exchange_public_data`: Live read-only Binance/OKX public market snapshot (ticker, K-lines, orderbook, funding, OI, sentiment, trades, histories)
+- `list_exchange_instruments`: List Binance futures or OKX swap instruments/tickers for symbol discovery
+- `get_exchange_account_data`: Read-only Binance account snapshot for a configured AI Trader (balance, positions, orders, recent trades, stats, rate limits; no credentials)
 - `get_api_reference`: Prompt variables or Program API documentation
 - `get_system_logs`: System error/warning logs for troubleshooting
 - `get_contact_config`: Support channel URLs (Twitter, Telegram, GitHub)

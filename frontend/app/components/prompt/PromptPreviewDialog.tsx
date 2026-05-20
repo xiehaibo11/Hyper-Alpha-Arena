@@ -3,7 +3,6 @@ import { toast } from 'react-hot-toast'
 import {
   previewPrompt,
   getAccounts,
-  getHyperliquidWatchlist,
   getBinanceWatchlist,
   TradingAccount,
   PromptPreviewItem,
@@ -38,11 +37,10 @@ export default function PromptPreviewDialog({
 }: PromptPreviewDialogProps) {
   const [accounts, setAccounts] = useState<TradingAccount[]>([])
   const [selectedAccountId, setSelectedAccountId] = useState<number | null>(null)
-  const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['hyperliquid'])
+  const [selectedExchanges, setSelectedExchanges] = useState<string[]>(['binance'])
   const [previews, setPreviews] = useState<PromptPreviewItem[]>([])
   const [loading, setLoading] = useState(false)
   const [generating, setGenerating] = useState(false)
-  const [hyperliquidWatchlist, setHyperliquidWatchlist] = useState<string[]>([])
   const [binanceWatchlist, setBinanceWatchlist] = useState<string[]>([])
   const [watchlistLoading, setWatchlistLoading] = useState(false)
   const { t } = useTranslation()
@@ -74,11 +72,7 @@ export default function PromptPreviewDialog({
   const loadWatchlists = async () => {
     setWatchlistLoading(true)
     try {
-      const [hlResponse, bnResponse] = await Promise.all([
-        getHyperliquidWatchlist(),
-        getBinanceWatchlist(),
-      ])
-      setHyperliquidWatchlist(hlResponse.symbols ?? [])
+      const bnResponse = await getBinanceWatchlist()
       setBinanceWatchlist(bnResponse.symbols ?? [])
     } catch (err) {
       console.error(err)
@@ -145,7 +139,7 @@ export default function PromptPreviewDialog({
 
   const getTabLabel = (preview: PromptPreviewItem) => {
     const exchangeLabel = preview.exchange
-      ? preview.exchange === 'hyperliquid' ? 'HL' : 'BN'
+      ? preview.exchange === 'okx' ? 'OKX' : 'BN'
       : ''
     return exchangeLabel ? `${preview.accountName} (${exchangeLabel})` : preview.accountName
   }
@@ -204,18 +198,6 @@ export default function PromptPreviewDialog({
                 <div className="flex items-center space-x-2">
                   <input
                     type="checkbox"
-                    id="exchange-hyperliquid"
-                    checked={selectedExchanges.includes('hyperliquid')}
-                    onChange={() => handleExchangeToggle('hyperliquid')}
-                    className="w-4 h-4 cursor-pointer"
-                  />
-                  <label htmlFor="exchange-hyperliquid" className="text-sm cursor-pointer">
-                    {t('strategy.exchangeHyperliquid', 'Hyperliquid')}
-                  </label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <input
-                    type="checkbox"
                     id="exchange-binance"
                     checked={selectedExchanges.includes('binance')}
                     onChange={() => handleExchangeToggle('binance')}
@@ -241,22 +223,6 @@ export default function PromptPreviewDialog({
                   <p className="text-xs text-muted-foreground">Loading watchlist…</p>
                 ) : (
                   <div className="space-y-3">
-                    {selectedExchanges.includes('hyperliquid') && (
-                      <div>
-                        <p className="text-xs font-medium mb-1">Hyperliquid:</p>
-                        {hyperliquidWatchlist.length === 0 ? (
-                          <p className="text-xs text-muted-foreground">No symbols configured</p>
-                        ) : (
-                          <div className="flex flex-wrap gap-2">
-                            {hyperliquidWatchlist.map((symbol) => (
-                              <span key={symbol} className="px-2 py-1 text-xs border rounded-md bg-muted text-muted-foreground">
-                                {symbol}
-                              </span>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
                     {selectedExchanges.includes('binance') && (
                       <div>
                         <p className="text-xs font-medium mb-1">Binance:</p>

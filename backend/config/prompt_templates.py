@@ -15,6 +15,9 @@ Total Account Value: ${total_account_value}
 === MARKET PRICES ===
 {market_prices}
 
+=== BINANCE / OKX PUBLIC API SNAPSHOT ===
+{api_query_snapshot_json}
+
 === NEWS ===
 {news_section}
 
@@ -62,6 +65,9 @@ Account Value: ${total_account_value}
 
 === MARKET PRICES ===
 {market_prices}
+
+=== BINANCE / OKX PUBLIC API SNAPSHOT ===
+{api_query_snapshot_json}
 
 === PRICE HISTORY ===
 {sampling_data}
@@ -214,6 +220,9 @@ Monitoring {selected_symbols_count} contracts:
 
 === MARKET PRICES ===
 {market_prices}
+
+=== BINANCE / OKX PUBLIC API SNAPSHOT ===
+{api_query_snapshot_json}
 
 === PRICE HISTORY ===
 {sampling_data}

@@ -24,6 +24,12 @@ from database.models import (
 from database.snapshot_connection import SnapshotSessionLocal
 from database.snapshot_models import HyperliquidTrade
 from services.ai_decision_service import build_chat_completion_endpoints, detect_api_format, _extract_text_from_message, get_max_tokens, build_llm_payload, build_llm_headers, extract_reasoning, convert_tools_to_anthropic, convert_messages_to_anthropic, strip_thinking_tags
+from services.ai_exchange_query_tools import (
+    EXCHANGE_QUERY_TOOLS,
+    EXCHANGE_QUERY_TOOL_NAMES,
+    execute_exchange_query_tool,
+    merge_tool_definitions,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -253,6 +259,7 @@ def _define_tools():
             }
         }
     ]
+    ATTRIBUTION_TOOLS = merge_tool_definitions(ATTRIBUTION_TOOLS, EXCHANGE_QUERY_TOOLS)
 
 
 # Initialize tools
@@ -281,6 +288,8 @@ def _execute_tool(db: Session, tool_name: str, args: Dict) -> str:
         elif tool_name == "query_factors":
             from services.hyper_ai_tools import execute_query_factors
             return execute_query_factors(db, args.get("exchange", "hyperliquid"), args.get("symbol"), forward_period=args.get("forward_period", "4h"))
+        elif tool_name in EXCHANGE_QUERY_TOOL_NAMES:
+            return execute_exchange_query_tool(db, tool_name, args)
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
     except Exception as e:

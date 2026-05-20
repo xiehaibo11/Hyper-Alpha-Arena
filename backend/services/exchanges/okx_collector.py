@@ -36,11 +36,7 @@ def _bool_env(name: str, default: bool) -> bool:
 
 
 PRIMARY_SYMBOLS = _csv_env("OKX_PRIMARY_SYMBOLS", "BTC,ETH,SOL,XRP")
-KLINE_PERIODS = [
-    "1m", "3m", "5m", "15m", "30m",
-    "1h", "2h", "4h", "6h", "8h", "12h",
-    "1d", "3d", "1w", "1M",
-]
+KLINE_PERIODS = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "6h", "12h", "1d", "3d", "1w", "1M"]
 
 KLINE_INTERVAL_SECONDS = _int_env("OKX_KLINE_INTERVAL_SECONDS", 60)
 OI_INTERVAL_SECONDS = _int_env("OKX_OI_INTERVAL_SECONDS", 60)
@@ -83,14 +79,8 @@ class OKXCollector:
         self.scheduler: Optional[BackgroundScheduler] = None
         self.running = False
         self.symbols: List[str] = []
-        self._rotation_cursors = {
-            "kline": 0,
-            "oi": 0,
-            "funding": 0,
-            "sentiment": 0,
-            "taker": 0,
-            "orderbook": 0,
-        }
+        self._rotation_cursors = {key: 0 for key in ("kline", "oi", "funding", "sentiment", "taker", "orderbook")}
+        self._kline_pair_cursor = 0
         logger.info("OKXCollector initialized")
 
     def start(self, symbols: Optional[List[str]] = None) -> None:
@@ -104,26 +94,19 @@ class OKXCollector:
 
         self.symbols = [str(item).upper() for item in symbols if str(item).strip()]
         self.scheduler = BackgroundScheduler()
-
         if REST_KLINE_BACKUP_ENABLED:
-            self._add_kline_job()
+            self._add_job("okx_klines", self._collect_klines, KLINE_INTERVAL_SECONDS)
         else:
             logger.info("OKX REST kline backup job disabled; K-lines are filled on demand")
-        self._add_oi_job()
-        self._add_funding_job()
-        self._add_sentiment_job()
-        self._add_taker_volume_job()
-        self._add_orderbook_job()
-
+        self._add_job("okx_oi", self._collect_oi, OI_INTERVAL_SECONDS)
+        self._add_job("okx_funding", self._collect_funding, FUNDING_INTERVAL_SECONDS)
+        self._add_job("okx_sentiment", self._collect_sentiment, SENTIMENT_INTERVAL_SECONDS)
+        self._add_job("okx_taker_volume", self._collect_taker_volume, TAKER_VOLUME_INTERVAL_SECONDS)
+        self._add_job("okx_orderbook", self._collect_orderbook, ORDERBOOK_INTERVAL_SECONDS)
         self.scheduler.start()
         self.running = True
         logger.info("OKXCollector started with symbols: %s", self.symbols)
-
-        threading.Thread(
-            target=self._collect_all_initial,
-            daemon=True,
-            name="okx-initial-collection",
-        ).start()
+        threading.Thread(target=self._collect_all_initial, daemon=True, name="okx-initial-collection").start()
 
     def stop(self) -> None:
         if not self.running:
@@ -138,7 +121,18 @@ class OKXCollector:
         self.symbols = [str(item).upper() for item in new_symbols if str(item).strip()]
         for key in self._rotation_cursors:
             self._rotation_cursors[key] = 0
+        self._kline_pair_cursor = 0
         logger.info("OKXCollector symbols updated: %s", self.symbols)
+
+    def _add_job(self, job_id: str, func, seconds: int) -> None:
+        self.scheduler.add_job(
+            func=func,
+            trigger=IntervalTrigger(seconds=seconds),
+            id=job_id,
+            replace_existing=True,
+            max_instances=1,
+            coalesce=True,
+        )
 
     def _primary_symbols(self) -> List[str]:
         selected = set(self.symbols)
@@ -152,79 +146,29 @@ class OKXCollector:
             return primary
 
         cursor = self._rotation_cursors.get(key, 0) % len(rotating_pool)
-        batch = []
-        for offset in range(min(batch_size, len(rotating_pool))):
-            batch.append(rotating_pool[(cursor + offset) % len(rotating_pool)])
+        batch = [rotating_pool[(cursor + offset) % len(rotating_pool)] for offset in range(min(batch_size, len(rotating_pool)))]
         self._rotation_cursors[key] = (cursor + len(batch)) % len(rotating_pool)
 
         merged = []
         seen = set()
         for symbol in primary + batch:
-            if symbol in seen:
-                continue
-            seen.add(symbol)
-            merged.append(symbol)
+            if symbol not in seen:
+                seen.add(symbol)
+                merged.append(symbol)
         return merged
 
-    def _add_kline_job(self) -> None:
-        self.scheduler.add_job(
-            func=self._collect_klines,
-            trigger=IntervalTrigger(seconds=KLINE_INTERVAL_SECONDS),
-            id="okx_klines",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
+    def _kline_pairs(self) -> List[tuple[str, str]]:
+        return [(symbol, period) for symbol in self.symbols for period in KLINE_PERIODS]
 
-    def _add_oi_job(self) -> None:
-        self.scheduler.add_job(
-            func=self._collect_oi,
-            trigger=IntervalTrigger(seconds=OI_INTERVAL_SECONDS),
-            id="okx_oi",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
-
-    def _add_funding_job(self) -> None:
-        self.scheduler.add_job(
-            func=self._collect_funding,
-            trigger=IntervalTrigger(seconds=FUNDING_INTERVAL_SECONDS),
-            id="okx_funding",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
-
-    def _add_sentiment_job(self) -> None:
-        self.scheduler.add_job(
-            func=self._collect_sentiment,
-            trigger=IntervalTrigger(seconds=SENTIMENT_INTERVAL_SECONDS),
-            id="okx_sentiment",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
-
-    def _add_taker_volume_job(self) -> None:
-        self.scheduler.add_job(
-            func=self._collect_taker_volume,
-            trigger=IntervalTrigger(seconds=TAKER_VOLUME_INTERVAL_SECONDS),
-            id="okx_taker_volume",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
-
-    def _add_orderbook_job(self) -> None:
-        self.scheduler.add_job(
-            func=self._collect_orderbook,
-            trigger=IntervalTrigger(seconds=ORDERBOOK_INTERVAL_SECONDS),
-            id="okx_orderbook",
-            replace_existing=True,
-            max_instances=1,
-            coalesce=True,
-        )
+    def _next_kline_pairs(self, batch_size: int) -> List[tuple[str, str]]:
+        pairs = self._kline_pairs()
+        if not pairs:
+            return []
+        cursor = self._kline_pair_cursor % len(pairs)
+        count = min(max(1, batch_size), len(pairs))
+        batch = [pairs[(cursor + offset) % len(pairs)] for offset in range(count)]
+        self._kline_pair_cursor = (cursor + count) % len(pairs)
+        return batch
 
     def _collect_all_initial(self) -> None:
         logger.info("[OKX] Running initial data collection")
@@ -240,30 +184,25 @@ class OKXCollector:
     def _collect_initial_klines(self) -> None:
         with SessionLocal() as db:
             persistence = ExchangeDataPersistence(db)
-            for symbol in self.symbols:
-                for period in KLINE_PERIODS:
-                    try:
-                        klines = self.adapter.fetch_klines(symbol, period, limit=REST_KLINE_INITIAL_LIMIT)
-                        if klines:
-                            persistence.save_klines(klines)
-                    except Exception as exc:
-                        logger.warning("[OKX] Initial kline backfill failed for %s/%s: %s", symbol, period, exc)
+            initial_pair_limit = _int_env("OKX_REST_KLINE_INITIAL_MAX_PAIRS", KLINE_ROTATION_BATCH_SIZE)
+            for symbol, period in self._next_kline_pairs(initial_pair_limit):
+                try:
+                    klines = self.adapter.fetch_klines(symbol, period, limit=REST_KLINE_INITIAL_LIMIT)
+                    if klines:
+                        persistence.save_klines(klines)
+                except Exception as exc:
+                    logger.warning("[OKX] Initial kline backfill failed for %s/%s: %s", symbol, period, exc)
 
     def _collect_klines(self) -> None:
         with SessionLocal() as db:
             persistence = ExchangeDataPersistence(db)
-            primary_symbols = self._primary_symbols()
-            rotation_symbols = self._rotating_symbols("kline", KLINE_ROTATION_BATCH_SIZE, include_primary=False)
-            collection_plan = [(symbol, KLINE_PERIODS) for symbol in primary_symbols]
-            collection_plan.extend((symbol, ["1m"]) for symbol in rotation_symbols)
-            for symbol, periods in collection_plan:
-                for period in periods:
-                    try:
-                        klines = self.adapter.fetch_klines(symbol, period, limit=5)
-                        if klines:
-                            persistence.save_klines(klines)
-                    except Exception as exc:
-                        logger.warning("[OKX] Failed to collect klines for %s/%s: %s", symbol, period, exc)
+            for symbol, period in self._next_kline_pairs(KLINE_ROTATION_BATCH_SIZE):
+                try:
+                    klines = self.adapter.fetch_klines(symbol, period, limit=5)
+                    if klines:
+                        persistence.save_klines(klines)
+                except Exception as exc:
+                    logger.warning("[OKX] Failed to collect klines for %s/%s: %s", symbol, period, exc)
 
     def _collect_oi(self) -> None:
         with SessionLocal() as db:

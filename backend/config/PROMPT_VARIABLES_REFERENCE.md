@@ -119,7 +119,12 @@ trigger_interval: 180 seconds
 | `{margin_usage_percent}` | Margin usage percentage | "23.8" |
 | `{maintenance_margin}` | Maintenance margin requirement | "$500.00" |
 | `{positions_detail}` | Detailed open positions with leverage, liquidation price, PnL | Full position breakdown |
+| `{positions_structured_json}` | Machine-readable open positions JSON. Includes symbol, side, size, entry/mark price, PnL, margin, leverage, liquidation distance, holding duration, and `peak_pnl_pct` when the exchange/source provides it. | JSON array |
 | `{recent_trades_summary}` | Recent closed trades history | Last 5 closed positions |
+| `{recent_trades_json}` | Machine-readable recent trades JSON | JSON array |
+| `{open_orders_detail}` | Detailed open orders with side, type, size, reduce-only flag, trigger, and placement time | Order list |
+| `{open_orders_json}` | Machine-readable open orders JSON | JSON array |
+| `{api_query_snapshot_json}` | Read-only Binance/OKX public API snapshot for monitored symbols. Includes bounded ticker, K-line, orderbook, funding, open interest, sentiment, recent trade, and history sections when available. | JSON object |
 | `{default_leverage}` | Default leverage setting | "3" |
 | `{real_trading_warning}` | Risk warning message | "REAL MONEY TRADING - All decisions execute on live markets" |
 | `{operational_constraints}` | Trading constraints and risk rules | Position size limits, margin rules |
