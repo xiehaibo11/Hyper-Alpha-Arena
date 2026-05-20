@@ -25,6 +25,7 @@ class ManualClosePositionRequest(BaseModel):
     account_id: int = Field(..., alias="accountId")
     exchange: str = Field("binance", pattern="^(binance)$")
     symbol: str = Field(..., min_length=1, max_length=20)
+    position_side: Optional[str] = Field(None, alias="positionSide", pattern="^(LONG|SHORT)$")
     environment: Optional[str] = Field(None, pattern="^(testnet|mainnet)$")
     session_token: Optional[str] = Field(None, alias="sessionToken")
 
@@ -90,15 +91,26 @@ def close_manual_position(
     symbol = request.symbol.upper().replace("USDT", "")
     try:
         client = _get_binance_client(wallet)
-        client.ensure_one_way_position_mode()
         positions = client.get_positions()
-        position = next((pos for pos in positions if pos.get("symbol") == symbol), None)
+        position = next((
+            pos for pos in positions
+            if pos.get("symbol") == symbol
+            and (
+                not request.position_side
+                or pos.get("position_side") == request.position_side
+                or pos.get("position_side") == "BOTH"
+            )
+        ), None)
         if not position or float(position.get("szi") or 0) == 0:
             raise HTTPException(status_code=404, detail=f"No open Binance position for {symbol}")
 
         size = abs(float(position.get("szi") or 0))
         close_side = "SELL" if float(position.get("szi") or 0) > 0 else "BUY"
-        result = client.close_position(symbol, cancel_tpsl=True)
+        result = client.close_position(
+            symbol,
+            cancel_tpsl=True,
+            position_side=request.position_side,
+        )
         if result is None:
             raise HTTPException(status_code=404, detail=f"No open Binance position for {symbol}")
 
@@ -119,6 +131,7 @@ def close_manual_position(
             "exchange": "binance",
             "environment": environment,
             "symbol": symbol,
+            "position_side": position.get("position_side"),
             "close_side": close_side,
             "closed_size": size,
             "order_id": result.get("order_id"),

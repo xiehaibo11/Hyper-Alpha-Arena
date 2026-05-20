@@ -44,7 +44,8 @@ class BinanceOrderMixin:
         price: Optional[float] = None,
         time_in_force: str = "GTC",
         reduce_only: bool = False,
-        leverage: Optional[int] = None
+        leverage: Optional[int] = None,
+        position_side: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Place an order on Binance Futures.
@@ -62,7 +63,7 @@ class BinanceOrderMixin:
         Returns:
             Order result dict with orderId, status, etc.
         """
-        self.ensure_one_way_position_mode()
+        resolved_position_side = self.resolve_order_position_side(side, reduce_only, position_side)
         binance_symbol = self._to_binance_symbol(symbol)
 
         # Set leverage if specified (skip for close/reduce_only orders)
@@ -89,7 +90,9 @@ class BinanceOrderMixin:
             "newClientOrderId": f"x-{self.broker_id}-{self._get_timestamp()}"
         }
 
-        if reduce_only:
+        if resolved_position_side:
+            params["positionSide"] = resolved_position_side
+        elif reduce_only:
             params["reduceOnly"] = "true"
 
         if order_type.upper() == "LIMIT":
@@ -105,8 +108,8 @@ class BinanceOrderMixin:
             error_str = str(e)
             if "-4061" in error_str:
                 raise Exception(
-                    "Position mode mismatch: Your Binance account uses Hedge Mode (dual position). "
-                    "Please switch to One-way Mode: Binance App → Futures → Settings → Position Mode → One-way Mode"
+                    "Position mode mismatch: Binance Hedge Mode orders require "
+                    "positionSide=LONG/SHORT, while One-way Mode orders use BOTH."
                 )
             raise
 
@@ -128,6 +131,7 @@ class BinanceOrderMixin:
             "status": result.get("status"),
             "time_in_force": result.get("timeInForce"),
             "reduce_only": result.get("reduceOnly", False),
+            "position_side": result.get("positionSide", resolved_position_side or "BOTH"),
             "environment": self.environment,
             "raw_response": result
         }
@@ -142,7 +146,8 @@ class BinanceOrderMixin:
         reduce_only: bool = True,
         working_type: str = "MARK_PRICE",
         client_algo_id: Optional[str] = None,
-        price: Optional[float] = None
+        price: Optional[float] = None,
+        position_side: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Place a stop-loss or take-profit order using Algo Order API.
@@ -164,7 +169,7 @@ class BinanceOrderMixin:
         Returns:
             Order result dict with algo_id for tracking
         """
-        self.ensure_one_way_position_mode()
+        resolved_position_side = self.resolve_order_position_side(side, reduce_only, position_side)
         binance_symbol = self._to_binance_symbol(symbol)
         precision = self._get_precision(binance_symbol)
 
@@ -192,7 +197,9 @@ class BinanceOrderMixin:
         if client_algo_id:
             params["clientAlgoId"] = client_algo_id
 
-        if reduce_only:
+        if resolved_position_side:
+            params["positionSide"] = resolved_position_side
+        elif reduce_only:
             params["reduceOnly"] = "true"
 
         result = self._request("POST", "/fapi/v1/algoOrder", params, signed=True)
@@ -213,6 +220,7 @@ class BinanceOrderMixin:
             "status": result.get("algoStatus"),
             "working_type": working_type,
             "reduce_only": reduce_only,
+            "position_side": result.get("positionSide", resolved_position_side or "BOTH"),
             "environment": self.environment,
             "raw_response": result
         }
@@ -295,7 +303,11 @@ class BinanceOrderMixin:
         logger.info(f"[BINANCE] Algo order {algo_id} cancelled for {binance_symbol}")
         return result
 
-    def cancel_all_algo_orders(self, symbol: str) -> Dict[str, Any]:
+    def cancel_all_algo_orders(
+        self,
+        symbol: str,
+        position_side: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Cancel all open Algo orders (TP/SL) for a symbol.
 
@@ -311,7 +323,10 @@ class BinanceOrderMixin:
         cancelled = []
         errors = []
 
+        target_side = position_side.upper() if position_side else None
         for order in algo_orders:
+            if target_side and order.get("positionSide") != target_side:
+                continue
             algo_id = order.get("algoId")
             if algo_id:
                 try:

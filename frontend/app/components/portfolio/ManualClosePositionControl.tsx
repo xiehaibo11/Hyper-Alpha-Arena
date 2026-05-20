@@ -60,6 +60,7 @@ export default function ManualClosePositionControl({
         accountId: selected.accountId,
         exchange: selected.exchange,
         symbol: selected.symbol,
+        positionSide: selected.side === 'SHORT' ? 'SHORT' : 'LONG',
         environment: selected.environment,
       })
       toast.success(
@@ -119,7 +120,7 @@ function buildOptions(positions: ArenaPositionsAccount[]): ManualClosePositionOp
     return account.positions
       .filter((position) => Math.abs(position.quantity || 0) > 0)
       .map((position) => ({
-        key: `${account.account_id}:binance:${position.symbol}`,
+        key: `${account.account_id}:binance:${position.symbol}:${position.side}`,
         accountId: account.account_id,
         accountName: account.account_name,
         exchange: 'binance' as const,

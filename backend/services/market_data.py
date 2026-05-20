@@ -16,6 +16,10 @@ _KLINE_CACHE_TTL_SECONDS = 5
 _kline_cache: Dict[Tuple[str, str, str, str, int], Tuple[float, List[Dict[str, Any]]]] = {}
 
 
+def _has_enough_local_klines(rows: List[Dict[str, Any]], count: int) -> bool:
+    return len(rows) >= max(1, min(int(count or 100), 30))
+
+
 def _get_cached_klines(
     symbol: str,
     market: str,
@@ -107,6 +111,7 @@ def get_kline_data(symbol: str, market: str = "CRYPTO", period: str = "1d", coun
     market_lower = market.lower()
 
     if market_lower == "binance":
+        local_rows: List[Dict[str, Any]] = []
         try:
             from services.exchanges.binance_adapter import BinanceAdapter
             from datetime import datetime
@@ -115,6 +120,25 @@ def get_kline_data(symbol: str, market: str = "CRYPTO", period: str = "1d", coun
             if cached is not None:
                 logger.debug(f"Using cached K-line data for {key} from Binance ({environment})")
                 return cached
+
+            from services.local_kline_store import load_local_klines, save_unified_klines
+
+            local_rows = load_local_klines(
+                symbol=symbol,
+                exchange="binance",
+                period=period,
+                count=count,
+                environment=environment,
+            )
+            if _has_enough_local_klines(local_rows, count):
+                logger.debug(
+                    "Using %d local K-lines for %s from Binance (%s)",
+                    len(local_rows),
+                    key,
+                    environment,
+                )
+                _cache_klines(symbol, market, environment, period, count, local_rows)
+                return local_rows
 
             adapter = BinanceAdapter(environment=environment)
             unified_klines = adapter.fetch_klines(symbol, period, limit=count)
@@ -137,10 +161,20 @@ def get_kline_data(symbol: str, market: str = "CRYPTO", period: str = "1d", coun
 
             if data:
                 logger.info(f"Got K-line data for {key} from Binance ({environment}), total {len(data)} items")
+                save_unified_klines(unified_klines, environment=environment)
                 _cache_klines(symbol, market, environment, period, count, data)
                 return data
             raise Exception("Binance returned empty K-line data")
         except Exception as bn_err:
+            if local_rows:
+                logger.warning(
+                    "Using %d local K-lines for %s after Binance fetch failed: %s",
+                    len(local_rows),
+                    key,
+                    bn_err,
+                )
+                _cache_klines(symbol, market, environment, period, count, local_rows)
+                return local_rows
             logger.error(f"Failed to get K-line data from Binance ({environment}): {bn_err}")
             raise Exception(f"Unable to get K-line data for {key}: {bn_err}")
     elif market_lower in {"okx", "oke"}:

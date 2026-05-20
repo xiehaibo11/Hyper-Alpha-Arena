@@ -4,6 +4,7 @@ export interface ManualClosePositionRequest {
   accountId: number
   exchange: 'binance'
   symbol: string
+  positionSide?: 'LONG' | 'SHORT' | null
   environment?: string | null
 }
 
@@ -14,6 +15,7 @@ export interface ManualClosePositionResponse {
   exchange: string
   environment: string
   symbol: string
+  position_side?: 'LONG' | 'SHORT' | 'BOTH' | null
   close_side: 'BUY' | 'SELL'
   closed_size: number
   order_id?: number | string | null

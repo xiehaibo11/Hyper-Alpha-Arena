@@ -11,9 +11,8 @@ logger = logging.getLogger(__name__)
 
 class BinanceAccountMixin:
     HEDGE_MODE_UNSUPPORTED_MESSAGE = (
-        "Binance account is in Hedge Mode (dual-side position mode), but this "
-        "app supports Binance One-way Position Mode only. Please switch Binance "
-        "Futures Position Mode to One-way Mode before placing long/short orders."
+        "Binance Hedge Mode is active. Orders will be sent with LONG/SHORT "
+        "positionSide parameters."
     )
 
     # ==================== Account Methods ====================
@@ -78,11 +77,32 @@ class BinanceAccountMixin:
         return parsed
 
     def ensure_one_way_position_mode(self) -> Dict[str, Any]:
-        """Raise a clear error if the Binance account is in Hedge Mode."""
+        """Backward-compatible mode check; both One-way and Hedge are supported."""
+        return self.get_position_mode()
+
+    def resolve_order_position_side(
+        self,
+        side: str,
+        reduce_only: bool = False,
+        position_side: Optional[str] = None,
+    ) -> Optional[str]:
+        """Return Binance positionSide for Hedge Mode, otherwise None."""
         mode = self.get_position_mode()
-        if mode.get("dual_side_position"):
-            raise ValueError(self.HEDGE_MODE_UNSUPPORTED_MESSAGE)
-        return mode
+        if not mode.get("dual_side_position"):
+            return None
+
+        if position_side:
+            normalized = position_side.upper()
+            if normalized not in {"LONG", "SHORT"}:
+                raise ValueError("position_side must be LONG or SHORT in Binance Hedge Mode")
+            return normalized
+
+        side_upper = side.upper()
+        if side_upper not in {"BUY", "SELL"}:
+            raise ValueError("side must be BUY or SELL")
+        if reduce_only:
+            return "SHORT" if side_upper == "BUY" else "LONG"
+        return "LONG" if side_upper == "BUY" else "SHORT"
 
     def get_balance(self) -> Dict[str, Any]:
         """
