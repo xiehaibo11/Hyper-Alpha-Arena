@@ -10,6 +10,12 @@ logger = logging.getLogger(__name__)
 
 
 class BinanceAccountMixin:
+    HEDGE_MODE_UNSUPPORTED_MESSAGE = (
+        "Binance account is in Hedge Mode (dual-side position mode), but this "
+        "app supports Binance One-way Position Mode only. Please switch Binance "
+        "Futures Position Mode to One-way Mode before placing long/short orders."
+    )
+
     # ==================== Account Methods ====================
 
     def get_ticker(self, symbol: str) -> Dict[str, Any]:
@@ -40,6 +46,43 @@ class BinanceAccountMixin:
             Account info dict with assets and positions arrays
         """
         return self._request("GET", "/fapi/v3/account", signed=True)
+
+    def get_position_mode(self) -> Dict[str, Any]:
+        """
+        Get Binance Futures position mode.
+
+        Binance returns dualSidePosition=true for Hedge Mode and false for
+        One-way Mode. The trading engine currently models one signed position
+        per symbol, so Hedge Mode is intentionally rejected before order entry.
+        """
+        now = time.time()
+        cached = getattr(self, "_position_mode_cache", None)
+        cached_at = getattr(self, "_position_mode_timestamp", 0)
+        ttl = getattr(self, "_position_mode_ttl", 30)
+        if cached is not None and (now - cached_at) < ttl:
+            return cached
+
+        result = self._request("GET", "/fapi/v1/positionSide/dual", signed=True)
+        raw_dual = result.get("dualSidePosition", False)
+        dual_side_position = str(raw_dual).lower() == "true" if isinstance(raw_dual, str) else bool(raw_dual)
+        mode = "hedge" if dual_side_position else "one_way"
+
+        parsed = {
+            "dual_side_position": dual_side_position,
+            "mode": mode,
+            "is_one_way": not dual_side_position,
+            "raw_response": result,
+        }
+        self._position_mode_cache = parsed
+        self._position_mode_timestamp = now
+        return parsed
+
+    def ensure_one_way_position_mode(self) -> Dict[str, Any]:
+        """Raise a clear error if the Binance account is in Hedge Mode."""
+        mode = self.get_position_mode()
+        if mode.get("dual_side_position"):
+            raise ValueError(self.HEDGE_MODE_UNSUPPORTED_MESSAGE)
+        return mode
 
     def get_balance(self) -> Dict[str, Any]:
         """

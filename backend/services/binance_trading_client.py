@@ -89,6 +89,12 @@ class BinanceTradingClient(
         self._timestamp_offset_ms: int = 0
         self._server_time_synced_at: float = 0.0
 
+        # Position mode is account-wide; cache briefly to avoid an extra signed
+        # request for every TP/SL leg while still catching user-side changes.
+        self._position_mode_cache: Optional[Dict[str, Any]] = None
+        self._position_mode_timestamp: float = 0.0
+        self._position_mode_ttl: int = 30
+
         logger.info(f"[BINANCE] Client initialized for {environment}")
 
     def _get_local_timestamp(self) -> int:

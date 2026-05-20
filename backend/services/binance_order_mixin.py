@@ -62,6 +62,7 @@ class BinanceOrderMixin:
         Returns:
             Order result dict with orderId, status, etc.
         """
+        self.ensure_one_way_position_mode()
         binance_symbol = self._to_binance_symbol(symbol)
 
         # Set leverage if specified (skip for close/reduce_only orders)
@@ -163,6 +164,7 @@ class BinanceOrderMixin:
         Returns:
             Order result dict with algo_id for tracking
         """
+        self.ensure_one_way_position_mode()
         binance_symbol = self._to_binance_symbol(symbol)
         precision = self._get_precision(binance_symbol)
 
