@@ -123,6 +123,11 @@ def setup_wallet(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid credentials: {e}")
 
+    try:
+        position_mode = test_client.ensure_one_way_position_mode()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     # For mainnet, check rebate eligibility
     rebate_working = None
     if request.environment == "mainnet":
@@ -183,7 +188,8 @@ def setup_wallet(
         "success": True,
         "message": f"Binance {request.environment} wallet configured",
         "environment": request.environment,
-        "balance": balance
+        "balance": balance,
+        "position_mode": position_mode,
     }
 
 
@@ -303,6 +309,42 @@ def get_positions(
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@router.get("/accounts/{account_id}/position-mode")
+def get_position_mode(
+    account_id: int,
+    environment: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Get Binance Futures account position mode and whether it is supported."""
+    if not environment:
+        environment = get_global_trading_mode(db)
+
+    wallet = db.query(BinanceWallet).filter(
+        BinanceWallet.account_id == account_id,
+        BinanceWallet.environment == environment,
+        BinanceWallet.is_active == "true"
+    ).first()
+
+    if not wallet:
+        raise HTTPException(status_code=404, detail=f"No {environment} wallet configured")
+
+    try:
+        client = _get_client(wallet)
+        position_mode = client.get_position_mode()
+        return {
+            **position_mode,
+            "supported": position_mode.get("is_one_way", False),
+            "message": (
+                "Binance One-way Position Mode is active"
+                if position_mode.get("is_one_way")
+                else client.HEDGE_MODE_UNSUPPORTED_MESSAGE
+            ),
+        }
+    except Exception as e:
+        logger.error(f"Failed to get Binance position mode: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @router.post("/accounts/{account_id}/order")
 def place_order(
     account_id: int,
@@ -332,6 +374,7 @@ def place_order(
 
     try:
         client = _get_client(wallet)
+        client.ensure_one_way_position_mode()
 
         # Use unified place_order_with_tpsl method (same as AI Trader and Program Trader)
         is_buy = request.side.upper() == "BUY"
@@ -362,6 +405,9 @@ def place_order(
             "sl_order": {"algo_id": result.get("sl_order_id")} if result.get("sl_order_id") else None,
             "errors": result.get("errors", []),
         }
+    except ValueError as e:
+        logger.warning(f"Order rejected by validation: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Order failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -389,10 +435,14 @@ def close_position(
 
     try:
         client = _get_client(wallet)
+        client.ensure_one_way_position_mode()
         result = client.close_position(symbol)
         if result is None:
             return {"message": f"No position to close for {symbol}"}
         return result
+    except ValueError as e:
+        logger.warning(f"Close position rejected by validation: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.error(f"Close position failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -670,6 +720,11 @@ def check_rebate_eligibility(
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Invalid credentials: {e}")
 
+        try:
+            client.ensure_one_way_position_mode()
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
         # Check rebate eligibility
         result = client.check_rebate_eligibility()
 
@@ -726,6 +781,11 @@ def confirm_limited_binding(
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid credentials: {e}")
 
+    try:
+        position_mode = test_client.ensure_one_way_position_mode()
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     # Encrypt credentials
     api_key_encrypted = encrypt_private_key(request.api_key)
     secret_key_encrypted = encrypt_private_key(request.secret_key)
@@ -764,6 +824,7 @@ def confirm_limited_binding(
         "message": "Binance mainnet wallet configured with daily quota limit",
         "environment": "mainnet",
         "balance": balance,
+        "position_mode": position_mode,
         "quota_limited": True
     }
 
