@@ -3,6 +3,9 @@ export interface Conversation {
   title: string
   message_count: number
   is_bot_conversation?: boolean
+  is_archived?: boolean
+  archived_at?: string | null
+  archive_url?: string | null
   updated_at: string
 }
 

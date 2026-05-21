@@ -17,6 +17,7 @@ def include_live_routes() -> None:
         from api.vpn_subscription_routes import router as vpn_subscription_router
         from api.binance_position_mode_routes import router as binance_position_mode_router
         from api.account_profile_defaults_routes import router as account_profile_defaults_router
+        from api.hyper_ai_archive_routes import router as hyper_ai_archive_router
         from services.ai_decision_skill_context import install_ai_decision_skill_guardrails_patch
 
         install_ai_decision_skill_guardrails_patch()
@@ -30,8 +31,10 @@ def include_live_routes() -> None:
         replace_route("/api/account/", {"POST"})
         replace_route("/api/account/list", {"GET"})
         app.include_router(account_profile_defaults_router)
+        replace_route("/api/hyper-ai/conversations", {"GET"})
+        app.include_router(hyper_ai_archive_router)
         move_spa_fallback_last()
-        logger.info("[LiveRoutes] OKX, manual trading, signal live, VPN, and account profile routes registered")
+        logger.info("[LiveRoutes] OKX, manual trading, signal live, VPN, account profile, and archive routes registered")
     except Exception as exc:
         logger.error("[LiveRoutes] Failed to register OKX routes: %s", exc, exc_info=True)
         raise
