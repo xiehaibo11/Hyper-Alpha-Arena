@@ -20,6 +20,45 @@ def _has_enough_local_klines(rows: List[Dict[str, Any]], count: int) -> bool:
     return len(rows) >= max(1, min(int(count or 100), 30))
 
 
+def _period_seconds(period: str) -> Optional[int]:
+    unit = str(period or "").strip().lower()
+    if not unit:
+        return None
+    try:
+        amount = int(unit[:-1])
+    except ValueError:
+        return None
+    if amount <= 0:
+        return None
+    suffix = unit[-1]
+    multipliers = {
+        "m": 60,
+        "h": 60 * 60,
+        "d": 24 * 60 * 60,
+        "w": 7 * 24 * 60 * 60,
+    }
+    multiplier = multipliers.get(suffix)
+    return amount * multiplier if multiplier else None
+
+
+def _local_klines_are_fresh(rows: List[Dict[str, Any]], period: str, now: Optional[float] = None) -> bool:
+    if not rows:
+        return False
+    interval = _period_seconds(period)
+    if not interval:
+        return False
+    try:
+        last_ts = int(rows[-1].get("timestamp") or 0)
+    except (TypeError, ValueError):
+        return False
+    if last_ts <= 0:
+        return False
+
+    current = now or time.time()
+    grace = max(90, min(interval * 0.25, 300))
+    return current - last_ts <= interval + grace
+
+
 def _get_cached_klines(
     symbol: str,
     market: str,
@@ -130,7 +169,8 @@ def get_kline_data(symbol: str, market: str = "CRYPTO", period: str = "1d", coun
                 count=count,
                 environment=environment,
             )
-            if _has_enough_local_klines(local_rows, count):
+            local_rows_fresh = _local_klines_are_fresh(local_rows, period)
+            if _has_enough_local_klines(local_rows, count) and local_rows_fresh:
                 logger.debug(
                     "Using %d local K-lines for %s from Binance (%s)",
                     len(local_rows),
@@ -139,6 +179,14 @@ def get_kline_data(symbol: str, market: str = "CRYPTO", period: str = "1d", coun
                 )
                 _cache_klines(symbol, market, environment, period, count, local_rows)
                 return local_rows
+            if local_rows:
+                logger.info(
+                    "Ignoring stale/incomplete local Binance K-lines for %s period=%s last_ts=%s count=%d",
+                    key,
+                    period,
+                    local_rows[-1].get("timestamp"),
+                    len(local_rows),
+                )
 
             adapter = BinanceAdapter(environment=environment)
             unified_klines = adapter.fetch_klines(symbol, period, limit=count)
@@ -166,7 +214,7 @@ def get_kline_data(symbol: str, market: str = "CRYPTO", period: str = "1d", coun
                 return data
             raise Exception("Binance returned empty K-line data")
         except Exception as bn_err:
-            if local_rows:
+            if local_rows and _local_klines_are_fresh(local_rows, period):
                 logger.warning(
                     "Using %d local K-lines for %s after Binance fetch failed: %s",
                     len(local_rows),
