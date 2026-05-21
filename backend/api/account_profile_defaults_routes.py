@@ -13,6 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from api.account_llm_routes import test_llm_connection as test_llm_with_payload
+from api.account_response import serialize_account
 from database.connection import get_db
 from database.models import Account, AccountAssetSnapshot, User
 from services.account_llm_profile_defaults import (
@@ -126,23 +127,11 @@ def create_new_account(payload: Dict[str, Any], db: Session = Depends(get_db)):
         _record_initial_snapshot(db, account)
         threading.Thread(target=_reset_auto_trading_job_async, daemon=True).start()
 
-        return {
-            "id": account.id,
-            "user_id": account.user_id,
-            "username": user.username,
-            "name": account.name,
-            "account_type": account.account_type,
-            "initial_capital": float(account.initial_capital),
-            "current_cash": float(account.current_cash),
-            "frozen_cash": float(account.frozen_cash),
-            "model": account.model,
-            "base_url": account.base_url,
-            "api_key": account.api_key,
-            "is_active": account.is_active == "true",
-            "auto_trading_enabled": account.auto_trading_enabled == "true",
-            "avatar_preset_id": account.avatar_preset_id,
-            "used_profile_llm_config": used_profile,
-        }
+        return serialize_account(
+            account,
+            user,
+            extra={"used_profile_llm_config": used_profile},
+        )
     except HTTPException:
         raise
     except Exception as exc:
@@ -155,6 +144,6 @@ def create_new_account(payload: Dict[str, Any], db: Session = Depends(get_db)):
 def list_all_accounts(include_hidden: bool = False, db: Session = Depends(get_db)):
     sync_placeholder_accounts_with_profile(db)
 
-    from api.account_routes import list_all_accounts as original_list_all_accounts
+    from api.account_management_routes import list_all_accounts as original_list_all_accounts
 
     return original_list_all_accounts(include_hidden=include_hidden, db=db)

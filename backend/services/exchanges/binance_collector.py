@@ -40,6 +40,7 @@ KLINE_PERIODS = [
 FUNDING_INTERVAL_SECONDS = 60  # 1 minute (using premiumIndex for real-time rate)
 SENTIMENT_INTERVAL_SECONDS = 300  # 5 minutes
 ORDERBOOK_INTERVAL_SECONDS = 15  # 15 seconds
+SENTIMENT_DATA_TYPES = ("global_account", "top_account", "top_position")
 
 
 def _int_env(name: str, default: int) -> int:
@@ -373,20 +374,24 @@ class BinanceCollector:
             db.close()
 
     def _collect_sentiment(self):
-        """Collect Sentiment (long/short ratio) data for all symbols"""
+        """Collect Binance long/short ratio data for all configured variants."""
         db = SessionLocal()
         try:
             persistence = ExchangeDataPersistence(db)
             for symbol in self._rotating_symbols("sentiment", SENTIMENT_ROTATION_BATCH_SIZE):
-                try:
-                    sentiment_list = self.adapter.fetch_sentiment_history(
-                        symbol, "5m", limit=3
-                    )
-                    if sentiment_list:
-                        result = persistence.save_sentiment_batch(sentiment_list)
-                        logger.debug(f"Sentiment {symbol}: {result}")
-                except Exception as e:
-                    logger.error(f"Failed to collect sentiment for {symbol}: {e}")
+                for data_type in SENTIMENT_DATA_TYPES:
+                    try:
+                        sentiment_list = self.adapter.fetch_sentiment_history(
+                            symbol, "5m", limit=3, data_type=data_type
+                        )
+                        if sentiment_list:
+                            result = persistence.save_sentiment_batch(
+                                sentiment_list,
+                                data_type=data_type,
+                            )
+                            logger.debug(f"Sentiment {symbol}/{data_type}: {result}")
+                    except Exception as e:
+                        logger.error(f"Failed to collect sentiment for {symbol}/{data_type}: {e}")
         finally:
             db.close()
 

@@ -9,6 +9,8 @@ from services.binance_full_api_tools import BINANCE_FULL_API_TOOL_NAMES, execute
 from sqlalchemy.orm import Session
 
 from services.hyper_ai_tools import execute_hyper_ai_tool as execute_legacy_hyper_ai_tool
+from services.hyper_ai_binding_tools import execute_update_signal_pool
+from services.hyper_ai_creation_tools import execute_save_signal_pool
 from services.hyper_ai_wallet_status import execute_get_wallet_status
 
 
@@ -32,6 +34,29 @@ def execute_hyper_ai_tool(
 
     if tool_name in BINANCE_FULL_API_TOOL_NAMES:
         return execute_binance_full_api_tool(db, tool_name, arguments or {})
+
+    if tool_name == "save_signal_pool":
+        args = arguments or {}
+        return execute_save_signal_pool(
+            db,
+            pool_name=args.get("pool_name"),
+            symbol=args.get("symbol", "BTC"),
+            signals=args.get("signals", []),
+            logic=args.get("logic", "AND"),
+            exchange=args.get("exchange", "hyperliquid"),
+            description=args.get("description"),
+        )
+
+    if tool_name == "update_signal_pool":
+        args = arguments or {}
+        return execute_update_signal_pool(
+            db,
+            pool_id=args.get("pool_id"),
+            pool_name=args.get("pool_name"),
+            enabled=args.get("enabled"),
+            logic=args.get("logic"),
+            signal_ids=args.get("signal_ids"),
+        )
 
     return execute_legacy_hyper_ai_tool(
         db,

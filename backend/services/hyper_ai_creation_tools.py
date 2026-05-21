@@ -2,12 +2,178 @@
 
 import json
 import logging
+import os
 import re
 from typing import Any, Dict, List
 
 from sqlalchemy.orm import Session
+from sqlalchemy import text
+
+from services.signal_pool_maintenance import (
+    MARKET_SIGNAL_SOURCE,
+    json_int_ids,
+    matching_pools,
+    pool_reference_count,
+    refresh_signal_runtime_cache,
+    select_pool_to_update,
+    soft_delete_duplicate_pools,
+    soft_delete_orphan_signals,
+)
 
 logger = logging.getLogger(__name__)
+
+DEFAULT_MAX_SIGNALS_PER_AI_POOL = 50
+
+
+def _max_signals_per_ai_pool() -> int:
+    raw_value = os.getenv("HYPER_AI_SIGNAL_POOL_MAX_SIGNALS", str(DEFAULT_MAX_SIGNALS_PER_AI_POOL))
+    try:
+        return max(1, int(raw_value))
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_SIGNALS_PER_AI_POOL
+
+
+def _build_trigger_condition(sig: Dict[str, Any], index: int) -> Dict[str, Any]:
+    metric_name = sig.get("metric") or sig.get("indicator")
+    if metric_name == "taker_volume":
+        condition = {
+            "metric": metric_name,
+            "direction": sig.get("direction"),
+            "ratio_threshold": sig.get("ratio_threshold"),
+            "volume_threshold": sig.get("volume_threshold"),
+            "time_window": sig.get("time_window"),
+        }
+        missing = [
+            field for field in ("direction", "ratio_threshold", "volume_threshold", "time_window")
+            if condition.get(field) is None or condition.get(field) == ""
+        ]
+        if missing or sig.get("operator"):
+            raise ValueError(
+                f"Signal {index} (taker_volume) format error. "
+                "taker_volume requires direction, ratio_threshold, volume_threshold, time_window "
+                "and must not use operator/threshold."
+            )
+        return condition
+
+    condition = {
+        "metric": metric_name,
+        "operator": sig.get("operator"),
+        "threshold": sig.get("threshold"),
+        "time_window": sig.get("time_window"),
+    }
+    missing = [
+        field for field in ("metric", "operator", "threshold", "time_window")
+        if condition.get(field) is None or condition.get(field) == ""
+    ]
+    if missing:
+        raise ValueError(f"Signal {index} missing required fields: {', '.join(missing)}")
+    return condition
+
+
+def _create_signal_definitions(
+    db: Session,
+    pool_name: str,
+    signals: List[Dict[str, Any]],
+    exchange: str,
+    description: str | None,
+) -> tuple[List[int], List[Dict[str, Any]]]:
+    created_signal_ids: List[int] = []
+    created_signals: List[Dict[str, Any]] = []
+    for index, sig in enumerate(signals, start=1):
+        condition = _build_trigger_condition(sig, index)
+        signal_name = sig.get("name") or f"{pool_name}_{index}"
+        result = db.execute(text("""
+            INSERT INTO signal_definitions (signal_name, description, trigger_condition, enabled, exchange)
+            VALUES (:name, :description, :condition, :enabled, :exchange)
+            RETURNING id, signal_name
+        """), {
+            "name": signal_name,
+            "description": sig.get("description") or description or f"Part of {pool_name}",
+            "condition": json.dumps(condition),
+            "enabled": True,
+            "exchange": exchange,
+        })
+        row = result.fetchone()
+        created_signal_ids.append(row[0])
+        created_signals.append({
+            "id": row[0],
+            "signal_name": row[1],
+            "trigger_condition": condition,
+            "exchange": exchange,
+        })
+
+    return created_signal_ids, created_signals
+
+
+def _save_signal_pool(
+    db: Session,
+    pool_name: str,
+    symbol: str,
+    signals: List[Dict[str, Any]],
+    logic: str,
+    exchange: str,
+    description: str | None,
+) -> Dict[str, Any]:
+    if not signals:
+        raise ValueError("No signals provided")
+
+    max_signals = _max_signals_per_ai_pool()
+    if len(signals) > max_signals:
+        raise ValueError(f"Maximum {max_signals} signals per AI-created pool")
+
+    created_signal_ids, created_signals = _create_signal_definitions(
+        db, pool_name, signals, exchange, description
+    )
+    matching_signal_pools = matching_pools(db, pool_name, symbol, exchange)
+    pool = select_pool_to_update(db, matching_signal_pools)
+    old_signal_ids: List[int] = []
+    duplicate_signal_ids: List[int] = []
+    duplicate_pools_deleted: List[int] = []
+
+    if pool:
+        old_signal_ids = json_int_ids(pool.signal_ids)
+        for duplicate_pool in matching_signal_pools:
+            if duplicate_pool.id != pool.id and pool_reference_count(db, duplicate_pool.id) == 0:
+                duplicate_signal_ids.extend(json_int_ids(duplicate_pool.signal_ids))
+        duplicate_pools_deleted = soft_delete_duplicate_pools(db, matching_signal_pools, pool.id)
+        pool.signal_ids = json.dumps(created_signal_ids)
+        pool.symbols = json.dumps([symbol.upper()])
+        pool.logic = logic
+        pool.enabled = True
+        pool.exchange = exchange
+        pool.source_type = MARKET_SIGNAL_SOURCE
+        pool.source_config = json.dumps({})
+        action = "updated"
+    else:
+        pool_result = db.execute(text("""
+            INSERT INTO signal_pools (pool_name, signal_ids, symbols, enabled, logic, exchange, source_type, source_config)
+            VALUES (:name, :signal_ids, :symbols, :enabled, :logic, :exchange, :source_type, :source_config)
+            RETURNING id, pool_name
+        """), {
+            "name": pool_name,
+            "signal_ids": json.dumps(created_signal_ids),
+            "symbols": json.dumps([symbol.upper()]),
+            "enabled": True,
+            "logic": logic,
+            "exchange": exchange,
+            "source_type": MARKET_SIGNAL_SOURCE,
+            "source_config": json.dumps({}),
+        })
+        pool_row = pool_result.fetchone()
+        pool = type("PoolResult", (), {"id": pool_row[0], "pool_name": pool_row[1]})()
+        action = "created"
+
+    db.flush()
+    deleted_signal_ids = soft_delete_orphan_signals(db, old_signal_ids + duplicate_signal_ids)
+    db.commit()
+    refresh_signal_runtime_cache()
+    return {
+        "pool": {"id": pool.id, "pool_name": pool.pool_name},
+        "signals": created_signals,
+        "action": action,
+        "old_signals_deleted": len(deleted_signal_ids),
+        "duplicate_pools_deleted": len(duplicate_pools_deleted),
+    }
 
 
 def execute_save_signal_pool(
@@ -19,50 +185,23 @@ def execute_save_signal_pool(
     exchange: str = "hyperliquid",
     description: str = None
 ) -> str:
-    """Create a signal pool by calling the existing API handler."""
-    from api.signal_routes import create_pool_from_config, SignalPoolConfigRequest
-
+    """Create a signal pool from Hyper AI without the public route's small UI cap."""
     try:
-        # Defensive validation for taker_volume signals
-        for i, sig in enumerate(signals):
-            if sig.get("metric") == "taker_volume":
-                missing = [f for f in ("direction", "ratio_threshold", "volume_threshold", "time_window")
-                           if not sig.get(f) and sig.get(f) != 0]
-                if missing or sig.get("operator"):
-                    return json.dumps({
-                        "error": f"Signal {i+1} (taker_volume) format error. "
-                                 f"taker_volume requires: direction, ratio_threshold, volume_threshold, time_window. "
-                                 f"Do NOT use operator/threshold for taker_volume.",
-                        "correct_example": {
-                            "metric": "taker_volume", "direction": "buy",
-                            "ratio_threshold": 1.5, "volume_threshold": 100000, "time_window": "5m"
-                        }
-                    })
-
-        # Build request object for the existing API handler
-        request = SignalPoolConfigRequest(
-            name=pool_name,
-            symbol=symbol,
-            signals=signals,
-            logic=logic,
-            exchange=exchange,
-            description=description
-        )
-
-        # Call the existing API handler directly
-        result = create_pool_from_config(request, db)
-
+        result = _save_signal_pool(db, pool_name, symbol, signals, logic, exchange, description)
         return json.dumps({
             "success": True,
             "pool_id": result["pool"]["id"],
             "pool_name": result["pool"]["pool_name"],
             "symbol": symbol.upper(),
+            "action": result["action"],
             "signals_created": len(result["signals"]),
-            "signals": signals,
+            "old_signals_deleted": result["old_signals_deleted"],
+            "duplicate_pools_deleted": result["duplicate_pools_deleted"],
+            "signals": result["signals"],
             "logic": logic,
             "exchange": exchange,
             "view_url": f"/#signal-management?view={result['pool']['id']}",
-            "note": "Signal pool created. Bind it to an AI Trader to start receiving triggers."
+            "note": "Signal pool saved. Same-name updates replace old signals instead of leaving stale ones."
         })
 
     except Exception as e:

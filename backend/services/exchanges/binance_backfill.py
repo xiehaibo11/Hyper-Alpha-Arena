@@ -21,6 +21,7 @@ KLINE_PERIODS = ['1m', '15m', '1h']  # Multiple periods for better coverage
 OI_BACKFILL_DAYS = 30
 FUNDING_BACKFILL_DAYS = 365
 SENTIMENT_BACKFILL_DAYS = 30
+SENTIMENT_DATA_TYPES = ("global_account", "top_account", "top_position")
 
 
 class BinanceBackfillService:
@@ -176,26 +177,34 @@ class BinanceBackfillService:
             logger.info(f"Funding backfill {symbol}: {result}, total {len(all_funding)} records")
 
     async def _backfill_sentiment(self, symbol: str, persistence: ExchangeDataPersistence):
-        """Backfill Long/Short ratio history (30 days)"""
+        """Backfill Binance Long/Short ratio history (30 days)."""
         logger.info(f"Backfilling sentiment for {symbol} ({SENTIMENT_BACKFILL_DAYS} days)")
-        all_sentiment = []
         end_time = int(time.time() * 1000)
         start_time = end_time - (SENTIMENT_BACKFILL_DAYS * 24 * 60 * 60 * 1000)
 
-        current_end = end_time
-        while current_end > start_time:
-            sentiment_list = self.adapter.fetch_sentiment_history(
-                symbol, "5m", limit=500, end_time=current_end
-            )
-            if not sentiment_list:
-                break
-            all_sentiment.extend(sentiment_list)
-            current_end = min(s.timestamp for s in sentiment_list) - 1
-            await asyncio.sleep(0.5)
+        for data_type in SENTIMENT_DATA_TYPES:
+            all_sentiment = []
+            current_end = end_time
+            while current_end > start_time:
+                sentiment_list = self.adapter.fetch_sentiment_history(
+                    symbol,
+                    "5m",
+                    limit=500,
+                    end_time=current_end,
+                    data_type=data_type,
+                )
+                if not sentiment_list:
+                    break
+                all_sentiment.extend(sentiment_list)
+                current_end = min(s.timestamp for s in sentiment_list) - 1
+                await asyncio.sleep(0.5)
 
-        if all_sentiment:
-            result = persistence.save_sentiment_batch(all_sentiment)
-            logger.info(f"Sentiment backfill {symbol}: {result}, total {len(all_sentiment)} records")
+            if all_sentiment:
+                result = persistence.save_sentiment_batch(all_sentiment, data_type=data_type)
+                logger.info(
+                    f"Sentiment backfill {symbol}/{data_type}: {result}, "
+                    f"total {len(all_sentiment)} records"
+                )
 
 
 # Singleton instance

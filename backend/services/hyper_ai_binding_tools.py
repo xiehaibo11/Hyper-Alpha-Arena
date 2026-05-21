@@ -318,6 +318,11 @@ def execute_update_signal_pool(
 ) -> str:
     """Update signal pool settings."""
     from database.models import SignalPool, SignalDefinition
+    from services.signal_pool_maintenance import (
+        json_int_ids,
+        refresh_signal_runtime_cache,
+        soft_delete_orphan_signals,
+    )
 
     try:
         pool = db.query(SignalPool).filter(SignalPool.id == pool_id, SignalPool.is_deleted != True).first()
@@ -325,6 +330,7 @@ def execute_update_signal_pool(
             return json.dumps({"error": f"Signal pool {pool_id} not found"})
 
         updated = []
+        old_signal_ids = json_int_ids(pool.signal_ids)
 
         # Validate signal_ids exchange match
         if signal_ids is not None:
@@ -354,11 +360,15 @@ def execute_update_signal_pool(
             pool.logic = logic
             updated.append("logic")
 
+        db.flush()
+        deleted_old_signal_ids = soft_delete_orphan_signals(db, old_signal_ids if signal_ids is not None else [])
         db.commit()
+        refresh_signal_runtime_cache()
         return json.dumps({
             "success": True, "pool_id": pool_id,
             "pool_name": pool.pool_name,
-            "updated_fields": updated
+            "updated_fields": updated,
+            "old_signals_deleted": len(deleted_old_signal_ids),
         }, indent=2)
 
     except Exception as e:

@@ -25,6 +25,12 @@ from .binance_rate_limiter import binance_rest_rate_limiter
 
 logger = logging.getLogger(__name__)
 
+SENTIMENT_ENDPOINTS = {
+    "global_account": "/futures/data/globalLongShortAccountRatio",
+    "top_account": "/futures/data/topLongShortAccountRatio",
+    "top_position": "/futures/data/topLongShortPositionRatio",
+}
+
 
 class BinanceAdapter(BaseExchangeAdapter):
     """
@@ -245,27 +251,32 @@ class BinanceAdapter(BaseExchangeAdapter):
             open_interest=Decimal(str(raw_data["openInterest"])),
         )
 
-    def fetch_sentiment(self, symbol: str) -> Optional[UnifiedSentiment]:
-        """Fetch long/short ratio from Binance (unique to Binance)."""
+    def fetch_sentiment(
+        self,
+        symbol: str,
+        data_type: str = "top_position",
+    ) -> Optional[UnifiedSentiment]:
+        """Fetch Binance long/short ratio.
+
+        data_type:
+        - global_account: all-account long/short ratio, often used as crowd sentiment
+        - top_account: top-trader account-count long/short ratio
+        - top_position: top-trader position long/short ratio
+        """
         exchange_symbol = self._to_exchange_symbol(symbol)
         params = {"symbol": exchange_symbol, "period": "5m", "limit": 1}
+        endpoint = SENTIMENT_ENDPOINTS.get(data_type)
+        if endpoint is None:
+            raise ValueError(f"Unsupported Binance sentiment data_type: {data_type}")
 
         try:
-            raw_data = self._request("/futures/data/topLongShortPositionRatio", params)
+            raw_data = self._request(endpoint, params)
             if not raw_data:
                 return None
 
-            item = raw_data[0]
-            return UnifiedSentiment(
-                exchange="binance",
-                symbol=symbol,
-                timestamp=item["timestamp"],
-                long_ratio=Decimal(str(item["longAccount"])),
-                short_ratio=Decimal(str(item["shortAccount"])),
-                long_short_ratio=Decimal(str(item["longShortRatio"])),
-            )
+            return self._parse_sentiment_item(raw_data[0], symbol)
         except Exception as e:
-            logger.warning(f"Failed to fetch sentiment for {symbol}: {e}")
+            logger.warning(f"Failed to fetch {data_type} sentiment for {symbol}: {e}")
             return None
 
     # ==================== Historical Data Methods ====================
@@ -343,9 +354,13 @@ class BinanceAdapter(BaseExchangeAdapter):
         limit: int = 100,
         start_time: Optional[int] = None,
         end_time: Optional[int] = None,
+        data_type: str = "top_position",
     ) -> List[UnifiedSentiment]:
         """Fetch historical long/short ratio (Binance supports 30 days)."""
         exchange_symbol = self._to_exchange_symbol(symbol)
+        endpoint = SENTIMENT_ENDPOINTS.get(data_type)
+        if endpoint is None:
+            raise ValueError(f"Unsupported Binance sentiment data_type: {data_type}")
         params = {
             "symbol": exchange_symbol,
             "period": interval,
@@ -357,18 +372,22 @@ class BinanceAdapter(BaseExchangeAdapter):
             params["endTime"] = end_time
 
         try:
-            raw_data = self._request("/futures/data/topLongShortPositionRatio", params)
+            raw_data = self._request(endpoint, params)
             return [
-                UnifiedSentiment(
-                    exchange="binance",
-                    symbol=symbol,
-                    timestamp=item["timestamp"],
-                    long_ratio=Decimal(str(item["longAccount"])),
-                    short_ratio=Decimal(str(item["shortAccount"])),
-                    long_short_ratio=Decimal(str(item["longShortRatio"])),
-                )
+                self._parse_sentiment_item(item, symbol)
                 for item in raw_data
             ]
         except Exception as e:
-            logger.warning(f"Failed to fetch sentiment history for {symbol}: {e}")
+            logger.warning(f"Failed to fetch {data_type} sentiment history for {symbol}: {e}")
             return []
+
+    def _parse_sentiment_item(self, item: dict, symbol: str) -> UnifiedSentiment:
+        """Parse a Binance long/short ratio row into the unified format."""
+        return UnifiedSentiment(
+            exchange="binance",
+            symbol=symbol,
+            timestamp=item["timestamp"],
+            long_ratio=Decimal(str(item["longAccount"])),
+            short_ratio=Decimal(str(item["shortAccount"])),
+            long_short_ratio=Decimal(str(item["longShortRatio"])),
+        )

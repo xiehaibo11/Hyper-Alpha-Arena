@@ -1,6 +1,16 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
+from pathlib import Path
 import os
+from dotenv import load_dotenv
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+BACKEND_ROOT = Path(__file__).resolve().parents[1]
+
+# Load root and backend env files for scripts and non-systemd entrypoints.
+# Existing process environment values win over .env values.
+load_dotenv(PROJECT_ROOT / ".env", override=False)
+load_dotenv(BACKEND_ROOT / ".env", override=False)
 
 # Prefer explicit env override; default to service name for containerized deployment
 # Default to docker-compose service name; override via env when needed
