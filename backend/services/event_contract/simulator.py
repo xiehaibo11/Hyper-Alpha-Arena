@@ -20,6 +20,7 @@ from database.models_event_contract import EventContractOrder
 from .config import DEFAULT_EXCHANGE
 from . import config_store as cfg
 from .data import load_klines
+from .execution import get_execution_backend
 from .orderflow import OF_SIGNALS, load_orderflow
 
 logger = logging.getLogger(__name__)
@@ -142,7 +143,7 @@ def settle_due_orders(exchange: str = DEFAULT_EXCHANGE) -> int:
                 if not later:
                     continue
                 sp = price_maps[o.symbol][min(later)]
-            o.settle(float(sp))
+            get_execution_backend().settle_order(o, float(sp))
             settled += 1
         if settled:
             db.commit()
