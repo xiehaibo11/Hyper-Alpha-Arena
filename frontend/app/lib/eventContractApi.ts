@@ -78,3 +78,25 @@ export function updateEventContractConfig(patch: Partial<EventContractConfig>) {
     return r.json() as Promise<EventContractConfig>
   })
 }
+
+export interface SignalCandle { time: number; open: number; high: number; low: number; close: number }
+export interface SignalMarker {
+  time: number
+  direction: 'long' | 'short'
+  result: 'win' | 'loss' | 'pending'
+  entry_price: number
+  settle_price: number | null
+}
+export interface SignalHistory {
+  exchange: string
+  symbol: string
+  expiry_minutes: number
+  candles: SignalCandle[]
+  markers: SignalMarker[]
+}
+
+export function getSignalHistory(exchange: string, symbol: string, expiry: number, limit = 180) {
+  return get<SignalHistory>(
+    `/api/event-contract/signals/history?exchange=${exchange}&symbol=${symbol}&expiry_minutes=${expiry}&limit=${limit}`,
+  )
+}

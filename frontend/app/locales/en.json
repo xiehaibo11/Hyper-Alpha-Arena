@@ -2029,6 +2029,10 @@
     "saved": "Saved",
     "saveFailed": "Save failed",
     "payout": "Payout",
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "chart": "Signal Arrow Chart",
+    "arrowLong": "Long",
+    "arrowShort": "Short",
+    "arrowNote": "locked on close · no repaint · enter next candle open"
   }
 }

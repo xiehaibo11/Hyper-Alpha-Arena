@@ -5,6 +5,7 @@ import {
   compareBacktest, getDailyStats, getLiveSignals,
 } from '@/lib/eventContractApi'
 import EventContractConfigPanel from './EventContractConfigPanel'
+import EventContractChart from './EventContractChart'
 
 const EXCHANGE = 'hyperliquid'
 
@@ -52,6 +53,8 @@ export default function EventContractPage() {
   const [bt, setBt] = useState<{ order_flow: BacktestResult[]; ta: BacktestResult[] } | null>(null)
   const [btLoading, setBtLoading] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
+  const [chartSymbol, setChartSymbol] = useState('BTC')
+  const [chartExpiry, setChartExpiry] = useState(5)
 
   useEffect(() => {
     let alive = true
@@ -113,6 +116,22 @@ export default function EventContractPage() {
             )}
           </div>
         </div>
+      </div>
+
+      <div className="mt-6 border rounded-lg p-4 bg-card">
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          <h3 className="font-semibold">{t('eventContract.chart', '信号箭头图')}</h3>
+          <select className="border rounded px-2 py-1 text-sm bg-background" value={chartSymbol} onChange={(e) => setChartSymbol(e.target.value)}>
+            <option value="BTC">BTC</option><option value="ETH">ETH</option>
+          </select>
+          <select className="border rounded px-2 py-1 text-sm bg-background" value={chartExpiry} onChange={(e) => setChartExpiry(Number(e.target.value))}>
+            <option value={5}>5min</option><option value={10}>10min</option>
+          </select>
+          <span className="text-xs text-muted-foreground">
+            ↑ {t('eventContract.arrowLong', '做多')} · ↓ {t('eventContract.arrowShort', '做空')} · {t('eventContract.arrowNote', '收盘锁定·不重绘·下根开盘入场')}
+          </span>
+        </div>
+        <EventContractChart exchange={EXCHANGE} symbol={chartSymbol} expiry={chartExpiry} />
       </div>
 
       <div className="mt-6 border rounded-lg p-4 bg-card">

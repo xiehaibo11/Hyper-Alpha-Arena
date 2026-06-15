@@ -78,6 +78,65 @@ def orders(mode: str = Query("live"), limit: int = Query(50, le=500)):
         db.close()
 
 
+@router.get("/signals/history")
+def signals_history(
+    symbol: str = Query("BTC"),
+    expiry_minutes: int = Query(5),
+    exchange: str = Query(ec_config.DEFAULT_EXCHANGE),
+    limit: int = Query(180, le=600),
+):
+    """Closed 1m candles + non-repainting signal arrows for the chart.
+
+    Markers come from EventContractOrder (mode='live'), which the simulator
+    only writes when a 1m candle CLOSES and a signal is confirmed. They never
+    move, so arrows never repaint. The arrow sits on the signal candle; entry
+    happens on the next candle's open.
+    """
+    from datetime import datetime, timezone
+    from services.event_contract.data import load_klines
+
+    kl = load_klines(exchange, symbol, limit=limit)
+    candles = []
+    if not kl.empty:
+        for row in kl.itertuples(index=False):
+            candles.append({
+                "time": int(row.timestamp), "open": float(row.open),
+                "high": float(row.high), "low": float(row.low),
+                "close": float(row.close),
+            })
+
+    markers = []
+    if candles:
+        first_dt = datetime.fromtimestamp(candles[0]["time"], tz=timezone.utc)
+        db = SessionLocal()
+        try:
+            rows = (
+                db.query(EventContractOrder)
+                .filter(
+                    EventContractOrder.mode == "live",
+                    EventContractOrder.symbol == symbol,
+                    EventContractOrder.expiry_minutes == expiry_minutes,
+                    EventContractOrder.exchange == exchange,
+                    EventContractOrder.signal_time >= first_dt,
+                )
+                .order_by(EventContractOrder.signal_time.asc())
+                .all()
+            )
+            for o in rows:
+                markers.append({
+                    "time": int(o.signal_time.timestamp()),
+                    "direction": o.direction, "result": o.result,
+                    "entry_price": o.entry_price, "settle_price": o.settle_price,
+                })
+        finally:
+            db.close()
+
+    return {
+        "exchange": exchange, "symbol": symbol, "expiry_minutes": expiry_minutes,
+        "candles": candles, "markers": markers,
+    }
+
+
 class BacktestRequest(BaseModel):
     type: str = "order_flow"          # 'order_flow' | 'ta'
     exchange: str = ec_config.DEFAULT_EXCHANGE
