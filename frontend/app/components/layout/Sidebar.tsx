@@ -287,6 +287,7 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
 
       {/* Mobile Navigation - 4 tabs: Dashboard, K-Lines, Chat, Programs */}
       <nav className="md:hidden flex flex-row items-center justify-around fixed bottom-0 left-0 right-0 bg-background border-t h-16 px-2 z-50">
+        {isPageVisible('comprehensive') && (
         <button
           className={`flex flex-col items-center justify-center flex-1 h-12 rounded-lg transition-colors ${
             currentPage === 'comprehensive'
@@ -299,6 +300,8 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
           <BarChart3 className="w-5 h-5" />
           <span className="text-xs mt-1">Dashboard</span>
         </button>
+        )}
+        {isPageVisible('klines') && (
         <button
           className={`flex flex-col items-center justify-center flex-1 h-12 rounded-lg transition-colors ${
             currentPage === 'klines'
@@ -311,6 +314,8 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
           <KLinesIcon className="w-5 h-5" />
           <span className="text-xs mt-1">K-Lines</span>
         </button>
+        )}
+        {isPageVisible('model-chat') && (
         <button
           className={`flex flex-col items-center justify-center flex-1 h-12 rounded-lg transition-colors ${
             currentPage === 'model-chat'
@@ -323,6 +328,8 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
           <MessageSquare className="w-5 h-5" />
           <span className="text-xs mt-1">Chat</span>
         </button>
+        )}
+        {isPageVisible('program-trader') && (
         <button
           className={`flex flex-col items-center justify-center flex-1 h-12 rounded-lg transition-colors ${
             currentPage === 'program-trader'
@@ -335,6 +342,7 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
           <MobileProgramsIcon className="w-5 h-5" />
           <span className="text-xs mt-1">Programs</span>
         </button>
+        )}
       </nav>
 
       {/* Modals */}
