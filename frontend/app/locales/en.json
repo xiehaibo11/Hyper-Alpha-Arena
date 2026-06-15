@@ -2033,6 +2033,10 @@
     "chart": "Signal Arrow Chart",
     "arrowLong": "Long",
     "arrowShort": "Short",
-    "arrowNote": "locked on close · no repaint · enter next candle open"
+    "arrowNote": "locked on close · no repaint · enter next candle open",
+    "lossRate": "Loss rate",
+    "platform": "Platform",
+    "signalAlgo": "Signal algorithm",
+    "signalHint": "Note: backtests show trend (of_cvd_trend) ~47% and fade (of_cvd_fade) ~52% in current conditions — both below the 55.6% breakeven. Choose with the backtest comparison."
   }
 }

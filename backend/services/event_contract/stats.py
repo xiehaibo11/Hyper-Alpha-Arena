@@ -44,6 +44,7 @@ def daily_stats(mode: str = "live", tz_name: Optional[str] = None) -> dict:
         db.close()
     settled = wins + losses
     win_rate = round(wins / settled, 4) if settled else 0.0
+    loss_rate = round(losses / settled, 4) if settled else 0.0
     return {
         "mode": mode,
         "tz": tz_name,
@@ -54,4 +55,5 @@ def daily_stats(mode: str = "live", tz_name: Optional[str] = None) -> dict:
         "pending": pending,
         "settled": settled,
         "win_rate": win_rate,
+        "loss_rate": loss_rate,
     }

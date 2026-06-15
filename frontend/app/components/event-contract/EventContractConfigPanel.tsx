@@ -1,14 +1,18 @@
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { EventContractConfig, getEventContractConfig, updateEventContractConfig } from '@/lib/eventContractApi'
+import {
+  EventContractConfig, getEventContractConfig, getStrategies, updateEventContractConfig,
+} from '@/lib/eventContractApi'
 
 export default function EventContractConfigPanel({ onClose }: { onClose: () => void }) {
   const { t } = useTranslation()
   const [cfg, setCfg] = useState<EventContractConfig | null>(null)
+  const [signals, setSignals] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
   const [msg, setMsg] = useState('')
 
   useEffect(() => { getEventContractConfig().then(setCfg).catch(() => setCfg(null)) }, [])
+  useEffect(() => { getStrategies().then((s) => setSignals(s.order_flow)).catch(() => setSignals([])) }, [])
 
   if (!cfg) return <div className="text-sm text-muted-foreground p-4">{t('eventContract.loading', '加载中…')}</div>
 
@@ -16,10 +20,15 @@ export default function EventContractConfigPanel({ onClose }: { onClose: () => v
     setCfg({ ...cfg, signal_params: { ...cfg.signal_params, [key]: { ...cfg.signal_params[key], [field]: value } } })
   }
 
+  const signalOptions = signals.includes(cfg.default_signal) ? signals : [cfg.default_signal, ...signals]
+
   const save = async () => {
     setSaving(true); setMsg('')
     try {
-      const next = await updateEventContractConfig({ payout: cfg.payout, daily_reset_tz: cfg.daily_reset_tz, signal_params: cfg.signal_params })
+      const next = await updateEventContractConfig({
+        payout: cfg.payout, daily_reset_tz: cfg.daily_reset_tz,
+        default_signal: cfg.default_signal, signal_params: cfg.signal_params,
+      })
       setCfg(next); setMsg(t('eventContract.saved', '已保存'))
     } catch { setMsg(t('eventContract.saveFailed', '保存失败')) } finally { setSaving(false) }
   }
@@ -32,6 +41,12 @@ export default function EventContractConfigPanel({ onClose }: { onClose: () => v
       </div>
 
       <div className="flex items-center gap-3 flex-wrap">
+        <label className="text-sm">{t('eventContract.signalAlgo', '信号算法')}</label>
+        <select value={cfg.default_signal}
+          onChange={(e) => setCfg({ ...cfg, default_signal: e.target.value })}
+          className="border rounded px-2 py-1 text-sm bg-background">
+          {signalOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+        </select>
         <label className="text-sm">{t('eventContract.payout', '赔付')}</label>
         <input type="number" step="0.01" value={cfg.payout}
           onChange={(e) => setCfg({ ...cfg, payout: Number(e.target.value) })}
@@ -40,6 +55,9 @@ export default function EventContractConfigPanel({ onClose }: { onClose: () => v
         <input value={cfg.daily_reset_tz}
           onChange={(e) => setCfg({ ...cfg, daily_reset_tz: e.target.value })}
           className="border rounded px-2 py-1 text-sm bg-background w-44" />
+      </div>
+      <div className="text-[11px] text-muted-foreground">
+        {t('eventContract.signalHint', '提示:回测显示当前行情下顺势(of_cvd_trend)≈47%、fade(of_cvd_fade)≈52%,均未达 55.6% 保本线。请结合回测对比选择。')}
       </div>
 
       <div>

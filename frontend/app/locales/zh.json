@@ -2053,6 +2053,10 @@
     "chart": "信号箭头图",
     "arrowLong": "做多",
     "arrowShort": "做空",
-    "arrowNote": "收盘锁定·不重绘·下根开盘入场"
+    "arrowNote": "收盘锁定·不重绘·下根开盘入场",
+    "lossRate": "输率",
+    "platform": "平台",
+    "signalAlgo": "信号算法",
+    "signalHint": "提示:回测显示当前行情下顺势(of_cvd_trend)≈47%、fade(of_cvd_fade)≈52%,均未达 55.6% 保本线。请结合回测对比选择。"
   }
 }

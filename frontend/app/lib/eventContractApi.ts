@@ -16,6 +16,7 @@ export interface DailyStats {
   pending: number
   settled: number
   win_rate: number
+  loss_rate: number
   tz: string
 }
 
@@ -66,6 +67,10 @@ export interface EventContractConfig {
 
 export function getEventContractConfig() {
   return get<EventContractConfig>('/api/event-contract/config')
+}
+
+export function getStrategies() {
+  return get<{ ta: string[]; order_flow: string[] }>('/api/event-contract/strategies')
 }
 
 export function updateEventContractConfig(patch: Partial<EventContractConfig>) {

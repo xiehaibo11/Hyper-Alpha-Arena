@@ -81,6 +81,18 @@ def run_signal_cycle(exchange: str = DEFAULT_EXCHANGE) -> int:
             if not kl.empty:
                 kl_cache[symbol] = float(kl["close"].iloc[-1])
             for expiry in cfg.expiries():
+                # one position at a time per cell: while an order is still open
+                # (unsettled) for this symbol+expiry, do NOT open a new one — no
+                # overlapping signals within an in-flight contract.
+                open_exists = db.query(EventContractOrder.id).filter(
+                    EventContractOrder.mode == "live",
+                    EventContractOrder.symbol == symbol,
+                    EventContractOrder.expiry_minutes == expiry,
+                    EventContractOrder.exchange == exchange,
+                    EventContractOrder.result == "pending",
+                ).first()
+                if open_exists:
+                    continue
                 sig = _last_closed_signal(symbol, expiry, exchange)
                 if not sig or not sig["direction"]:
                     continue
@@ -156,9 +168,10 @@ def settle_due_orders(exchange: str = DEFAULT_EXCHANGE) -> int:
 
 
 def run_cycle(exchange: str = DEFAULT_EXCHANGE) -> dict:
-    """One full tick: open new signals + settle due. For the scheduler."""
-    opened = run_signal_cycle(exchange)
+    """One full tick: settle due first, then open new signals. Settling first
+    frees a just-expired cell so the no-overlap guard allows a fresh entry."""
     settled = settle_due_orders(exchange)
+    opened = run_signal_cycle(exchange)
     if opened or settled:
         logger.info(f"[event_contract] cycle: opened={opened} settled={settled}")
     return {"opened": opened, "settled": settled}

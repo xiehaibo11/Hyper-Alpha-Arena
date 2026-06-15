@@ -7,7 +7,7 @@ import {
 import EventContractConfigPanel from './EventContractConfigPanel'
 import EventContractChart from './EventContractChart'
 
-const EXCHANGE = 'hyperliquid'
+const EXCHANGES = ['hyperliquid', 'binance', 'okx'] as const
 
 function DirectionBadge({ d }: { d: LiveSignal['direction'] }) {
   const map = {
@@ -25,6 +25,7 @@ function DirectionBadge({ d }: { d: LiveSignal['direction'] }) {
 function DailyPanel({ s }: { s: DailyStats | null }) {
   const { t } = useTranslation()
   const wr = s ? (s.win_rate * 100).toFixed(1) : '0.0'
+  const lr = s ? (s.loss_rate * 100).toFixed(1) : '0.0'
   const good = s && s.win_rate >= 0.66
   return (
     <div className="w-56 shrink-0 border rounded-lg p-4 bg-card">
@@ -36,6 +37,7 @@ function DailyPanel({ s }: { s: DailyStats | null }) {
           <tr><td className="text-muted-foreground py-1">{t('eventContract.losses', '输')}</td><td className="text-right font-medium text-red-500">{s?.losses ?? 0}</td></tr>
           <tr><td className="text-muted-foreground py-1">{t('eventContract.pending', '未结算')}</td><td className="text-right font-medium">{s?.pending ?? 0}</td></tr>
           <tr className="border-t"><td className="py-1 font-semibold">{t('eventContract.winRate', '胜率')}</td><td className={`text-right font-bold ${good ? 'text-green-500' : ''}`}>{wr}%</td></tr>
+          <tr><td className="py-1 font-semibold">{t('eventContract.lossRate', '输率')}</td><td className="text-right font-bold text-red-500">{lr}%</td></tr>
         </tbody>
       </table>
       <div className="text-[10px] text-muted-foreground mt-2">{t('eventContract.tzNote', '每日 00:00 重置')} · {s?.tz || ''}</div>
@@ -53,6 +55,7 @@ export default function EventContractPage() {
   const [bt, setBt] = useState<{ order_flow: BacktestResult[]; ta: BacktestResult[] } | null>(null)
   const [btLoading, setBtLoading] = useState(false)
   const [showConfig, setShowConfig] = useState(false)
+  const [exchange, setExchange] = useState('hyperliquid')
   const [chartSymbol, setChartSymbol] = useState('BTC')
   const [chartExpiry, setChartExpiry] = useState(5)
 
@@ -60,7 +63,7 @@ export default function EventContractPage() {
     let alive = true
     const tick = async () => {
       try {
-        const [sig, st] = await Promise.all([getLiveSignals(EXCHANGE), getDailyStats()])
+        const [sig, st] = await Promise.all([getLiveSignals(exchange), getDailyStats()])
         if (!alive) return
         setSignals(sig.signals)
         setStats(st)
@@ -70,12 +73,12 @@ export default function EventContractPage() {
     tick()
     const id = setInterval(tick, 15000)
     return () => { alive = false; clearInterval(id) }
-  }, [])
+  }, [exchange])
 
   const runBacktest = async () => {
     setBtLoading(true)
     try {
-      setBt(await compareBacktest(EXCHANGE, btSymbol, btExpiry))
+      setBt(await compareBacktest(exchange, btSymbol, btExpiry))
     } catch { setBt(null) } finally { setBtLoading(false) }
   }
 
@@ -83,11 +86,15 @@ export default function EventContractPage() {
   return (
     <div className="h-full overflow-auto">
       <div className="flex gap-4 items-start">
-        <DailyPanel s={stats} />
         <div className="flex-1">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h2 className="text-lg font-semibold">{t('eventContract.signalBoard', '事件合约信号 (多/空/无)')}</h2>
             <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{t('eventContract.platform', '平台')}:</span>
+              <select className="border rounded px-2 py-1 text-sm bg-background"
+                value={exchange} onChange={(e) => setExchange(e.target.value)}>
+                {EXCHANGES.map((x) => <option key={x} value={x}>{x}</option>)}
+              </select>
               <span className="text-xs text-muted-foreground">{t('eventContract.updated', '更新')}: {updatedAt}</span>
               <button onClick={() => setShowConfig((v) => !v)}
                 className="text-xs px-2 py-1 rounded border hover:bg-muted">
@@ -116,6 +123,7 @@ export default function EventContractPage() {
             )}
           </div>
         </div>
+        <DailyPanel s={stats} />
       </div>
 
       <div className="mt-6 border rounded-lg p-4 bg-card">
@@ -131,7 +139,7 @@ export default function EventContractPage() {
             ↑ {t('eventContract.arrowLong', '做多')} · ↓ {t('eventContract.arrowShort', '做空')} · {t('eventContract.arrowNote', '收盘锁定·不重绘·下根开盘入场')}
           </span>
         </div>
-        <EventContractChart exchange={EXCHANGE} symbol={chartSymbol} expiry={chartExpiry} />
+        <EventContractChart exchange={exchange} symbol={chartSymbol} expiry={chartExpiry} />
       </div>
 
       <div className="mt-6 border rounded-lg p-4 bg-card">
