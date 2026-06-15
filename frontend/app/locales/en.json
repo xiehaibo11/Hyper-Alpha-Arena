@@ -2019,5 +2019,16 @@
     "hyperAI": {
       "tooltip": "Chat with Hyper AI"
     }
+  },
+  "eventContract": {
+    "config": "Config",
+    "signalParams": "Signal params (window / thr)",
+    "resetTz": "Reset timezone",
+    "save": "Save",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "saveFailed": "Save failed",
+    "payout": "Payout",
+    "loading": "Loading…"
   }
 }

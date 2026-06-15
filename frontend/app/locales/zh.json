@@ -2039,5 +2039,16 @@
     "hyperAI": {
       "tooltip": "与 Hyper AI 对话"
     }
+  },
+  "eventContract": {
+    "config": "配置",
+    "signalParams": "信号参数 (window / thr)",
+    "resetTz": "重置时区",
+    "save": "保存",
+    "saving": "保存中…",
+    "saved": "已保存",
+    "saveFailed": "保存失败",
+    "payout": "赔付",
+    "loading": "加载中…"
   }
 }
