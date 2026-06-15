@@ -318,7 +318,8 @@ backend/static/
 backend/data.db
 us_crypto_news.json
 data.db
-backend/tests/
+backend/tests/*
+!backend/tests/test_event_contract_config_store.py
 .vscode/
 backend/.DS_Store
 
