@@ -1,0 +1,163 @@
+"""Live forward paper-simulator for the event-contract system.
+
+Every cycle (scheduled ~once per minute):
+1. evaluate the default order-flow signal on the last *closed* 1m minute,
+2. open a pending simulated order (entry = current price, settle = +expiry),
+3. settle any pending orders whose settle time has passed.
+
+No real orders are placed (clients trade manually). Rows land in
+event_contract_orders with mode='live'.
+"""
+from __future__ import annotations
+
+import logging
+import time
+from datetime import datetime, timezone
+from typing import Optional
+
+from database.connection import SessionLocal
+from database.models_event_contract import EventContractOrder
+from .config import DEFAULT_EXCHANGE
+from . import config_store as cfg
+from .data import load_klines
+from .orderflow import OF_SIGNALS, load_orderflow
+
+logger = logging.getLogger(__name__)
+_LOOKBACK = 60
+
+
+def _utc(ts: int) -> datetime:
+    return datetime.fromtimestamp(ts, tz=timezone.utc)
+
+
+def _last_closed_signal(symbol: str, expiry: int, exchange: str) -> Optional[dict]:
+    """Evaluate the default signal on the last closed minute. Returns dict or None."""
+    feat = load_orderflow(exchange, symbol)
+    if feat.empty:
+        return None
+    now_minute = (int(time.time()) // 60) * 60
+    closed = feat[feat["minute"] < now_minute]
+    if len(closed) < 41:
+        return None
+    fn = OF_SIGNALS[cfg.default_signal()]
+    window = closed.tail(_LOOKBACK)
+    direction = fn(window, cfg.params_for(symbol, expiry))
+    return {
+        "symbol": symbol,
+        "expiry": expiry,
+        "signal_minute": int(closed["minute"].iloc[-1]),
+        "direction": direction,  # 'long'|'short'|None
+    }
+
+
+def current_signals(exchange: str = DEFAULT_EXCHANGE) -> list[dict]:
+    """Live signal board state for the UI: long/short/none per symbol+expiry."""
+    out: list[dict] = []
+    for symbol in cfg.symbols():
+        kl = load_klines(exchange, symbol, limit=5)
+        price = float(kl["close"].iloc[-1]) if not kl.empty else None
+        for expiry in cfg.expiries():
+            sig = _last_closed_signal(symbol, expiry, exchange)
+            out.append({
+                "exchange": exchange,
+                "symbol": symbol,
+                "expiry_minutes": expiry,
+                "direction": (sig or {}).get("direction") or "none",
+                "signal_minute": (sig or {}).get("signal_minute"),
+                "price": price,
+            })
+    return out
+
+
+def run_signal_cycle(exchange: str = DEFAULT_EXCHANGE) -> int:
+    """Open pending simulated orders for any fired signal. Returns # opened."""
+    opened = 0
+    db = SessionLocal()
+    try:
+        kl_cache: dict[str, float] = {}
+        for symbol in cfg.symbols():
+            kl = load_klines(exchange, symbol, limit=5)
+            if not kl.empty:
+                kl_cache[symbol] = float(kl["close"].iloc[-1])
+            for expiry in cfg.expiries():
+                sig = _last_closed_signal(symbol, expiry, exchange)
+                if not sig or not sig["direction"]:
+                    continue
+                price = kl_cache.get(symbol)
+                if price is None:
+                    continue
+                entry_min = sig["signal_minute"] + 60
+                signal_dt = _utc(sig["signal_minute"])
+                # dedupe: one order per (mode,symbol,expiry,signal_time)
+                exists = db.query(EventContractOrder.id).filter(
+                    EventContractOrder.mode == "live",
+                    EventContractOrder.symbol == symbol,
+                    EventContractOrder.expiry_minutes == expiry,
+                    EventContractOrder.signal_time == signal_dt,
+                ).first()
+                if exists:
+                    continue
+                db.add(EventContractOrder(
+                    mode="live", exchange=exchange, symbol=symbol,
+                    strategy=cfg.default_signal(), direction=sig["direction"],
+                    expiry_minutes=expiry, signal_time=signal_dt,
+                    entry_time=_utc(entry_min), entry_price=price,
+                    settle_time=_utc(entry_min + expiry * 60),
+                    result="pending", payout=cfg.payout(),
+                ))
+                opened += 1
+        if opened:
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"[event_contract] signal cycle error: {e}")
+    finally:
+        db.close()
+    return opened
+
+
+def settle_due_orders(exchange: str = DEFAULT_EXCHANGE) -> int:
+    """Settle pending orders whose settle_time has passed. Returns # settled."""
+    settled = 0
+    now = datetime.now(timezone.utc)
+    db = SessionLocal()
+    try:
+        due = db.query(EventContractOrder).filter(
+            EventContractOrder.mode == "live",
+            EventContractOrder.result == "pending",
+            EventContractOrder.settle_time <= now,
+        ).all()
+        if not due:
+            return 0
+        price_maps: dict[str, dict] = {}
+        for o in due:
+            if o.symbol not in price_maps:
+                kl = load_klines(o.exchange or exchange, o.symbol, limit=1200)
+                price_maps[o.symbol] = dict(zip(kl["timestamp"].tolist(), kl["open"].tolist())) if not kl.empty else {}
+            settle_ts = int(o.settle_time.timestamp())
+            sp = price_maps[o.symbol].get(settle_ts)
+            if sp is None:
+                # fallback: nearest available candle at/after settle time
+                later = [t for t in price_maps[o.symbol] if t >= settle_ts]
+                if not later:
+                    continue
+                sp = price_maps[o.symbol][min(later)]
+            o.settle(float(sp))
+            settled += 1
+        if settled:
+            db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.warning(f"[event_contract] settle error: {e}")
+    finally:
+        db.close()
+    return settled
+
+
+def run_cycle(exchange: str = DEFAULT_EXCHANGE) -> dict:
+    """One full tick: open new signals + settle due. For the scheduler."""
+    opened = run_signal_cycle(exchange)
+    settled = settle_due_orders(exchange)
+    if opened or settled:
+        logger.info(f"[event_contract] cycle: opened={opened} settled={settled}")
+    return {"opened": opened, "settled": settled}
