@@ -10,7 +10,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     ports:
-      - "127.0.0.1:5432:5432"
+      # Host 5432 is used by a native postgres on this Mac, so publish on 5433.
+      # Containers still talk to each other via the internal hostname `postgres:5432`.
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U alpha_user -d alpha_arena"]
       interval: 10s
@@ -96,6 +98,7 @@ services:
 
       # Backend subdirectories
       - ./backend/api:/app/backend/api
+      - ./backend/app_bootstrap:/app/backend/app_bootstrap
       - ./backend/backtest:/app/backend/backtest
       - ./backend/config:/app/backend/config
       - ./backend/database:/app/backend/database

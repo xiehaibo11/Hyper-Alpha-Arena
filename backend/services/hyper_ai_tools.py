@@ -1300,22 +1300,11 @@ def execute_get_system_logs(db: Session, level: str = "error", limit: int = 20, 
 
 
 def execute_get_contact_config() -> str:
-    """Get support channel URLs."""
-    import requests
-
-    try:
-        # Try to fetch from external API
-        resp = requests.get("https://www.akooi.com/api/config/contact", timeout=5)
-        if resp.status_code == 200:
-            return json.dumps(resp.json(), indent=2)
-    except Exception as e:
-        logger.warning(f"[get_contact_config] Failed to fetch from API: {e}")
-
-    # Fallback to defaults
+    """Get support channel URLs for this deployment's operator."""
     return json.dumps({
-        "twitter": {"url": "https://x.com/GptHammer3309", "enabled": True},
-        "telegram": {"url": "https://t.me/+RqxjT7Gttm9hOGEx", "enabled": True},
-        "github": {"url": "https://github.com/HammerGPT/Hyper-Alpha-Arena", "enabled": True}
+        "telegram": {"url": "https://t.me/WhimSeeker", "enabled": True},
+        "twitter": {"url": None, "enabled": False},
+        "github": {"url": None, "enabled": False},
     }, indent=2)
 
 
