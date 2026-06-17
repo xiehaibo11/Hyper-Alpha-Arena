@@ -305,6 +305,45 @@ class AsterKlineCollector(BaseKlineCollector):
         return ["BTC/USDT", "ETH/USDT"]  # 示例
 
 
+class CryptoComKlineCollector(BaseKlineCollector):
+    """Crypto.com K线采集器(OHLCV;无 taker 量)。"""
+
+    def __init__(self):
+        super().__init__("crypto_com")
+        from .exchanges.crypto_com_adapter import CryptoComAdapter
+        self.adapter = CryptoComAdapter()
+
+    def _convert(self, kline, period: str) -> KlineData:
+        return KlineData(
+            exchange=self.exchange_id, symbol=kline.symbol,
+            timestamp=int(kline.timestamp), period=period,
+            open_price=float(kline.open_price), high_price=float(kline.high_price),
+            low_price=float(kline.low_price), close_price=float(kline.close_price),
+            volume=float(kline.volume),
+        )
+
+    async def fetch_current_kline(self, symbol: str, period: str = "1m") -> Optional[KlineData]:
+        try:
+            ks = self.adapter.fetch_klines(symbol, period, limit=1)
+            return self._convert(ks[-1], period) if ks else None
+        except Exception as e:
+            self.logger.error(f"Failed to fetch Crypto.com current kline for {symbol}/{period}: {e}")
+            return None
+
+    async def fetch_historical_klines(
+        self, symbol: str, start_time: datetime, end_time: datetime, period: str = "1m"
+    ) -> List[KlineData]:
+        try:
+            ks = self.adapter.fetch_klines(symbol, period, limit=300)
+            return [self._convert(k, period) for k in ks]
+        except Exception as e:
+            self.logger.error(f"Failed to fetch Crypto.com historical klines for {symbol}/{period}: {e}")
+            return []
+
+    def get_supported_symbols(self) -> List[str]:
+        return ["BTC", "ETH"]
+
+
 class ExchangeDataSourceFactory:
     """交易所数据源工厂 - 根据配置返回对应采集器"""
 
@@ -312,7 +351,8 @@ class ExchangeDataSourceFactory:
         "hyperliquid": HyperliquidKlineCollector,
         "binance": BinanceKlineCollector,
         "okx": OKXKlineCollector,
-        "aster": AsterKlineCollector
+        "aster": AsterKlineCollector,
+        "crypto_com": CryptoComKlineCollector,
     }
 
     @classmethod

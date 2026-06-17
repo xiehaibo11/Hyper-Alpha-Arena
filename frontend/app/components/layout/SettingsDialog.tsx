@@ -68,6 +68,7 @@ const EXCHANGE_OPTIONS = [
   { value: 'binance', label: 'Binance' },
   { value: 'okx', label: 'OKX' },
   { value: 'hyperliquid', label: 'Hyperliquid' },
+  { value: 'crypto_com', label: 'Crypto.com' },
 ]
 
 const SELECT_CLASS =

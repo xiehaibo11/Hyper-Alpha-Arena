@@ -24,6 +24,9 @@ def _price_adapter(exchange: str):
     if ex == "okx":
         from services.exchanges.okx_adapter import OKXAdapter
         return OKXAdapter()
+    if ex in ("crypto_com", "cryptocom", "crypto.com"):
+        from services.exchanges.crypto_com_adapter import CryptoComAdapter
+        return CryptoComAdapter()
     return None
 
 
