@@ -18,7 +18,8 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def build_context(symbol: str, expiry: int, kl: pd.DataFrame, feat: pd.DataFrame) -> dict:
+def build_context(symbol: str, expiry: int, kl: pd.DataFrame, feat: pd.DataFrame,
+                  params: Optional[dict] = None) -> dict:
     """Compact, JSON-serialisable context for the LLM. Never raises."""
     if kl is None or kl.empty or feat is None or feat.empty:
         return {"symbol": symbol, "expiry_minutes": expiry, "available": False}
@@ -31,6 +32,15 @@ def build_context(symbol: str, expiry: int, kl: pd.DataFrame, feat: pd.DataFrame
         std = cvd.rolling(n).std().iloc[-1] if n > 1 else np.nan
         cvd_z = float((cvd.iloc[-1] - mean) / std) if std and not pd.isna(std) else 0.0
         buy_ratio = float(feat["buy_ratio"].iloc[-1]) if not pd.isna(feat["buy_ratio"].iloc[-1]) else 0.5
+        # The proven order-flow edge (cvd-fade, ~58-60% validated). Anchoring the
+        # LLM to this call lifts it from blind guessing toward the real edge.
+        edge_signal = None
+        try:
+            from .orderflow import of_cvd_fade
+            p = params or {"window": 45, "thr": 1.5}
+            edge_signal = of_cvd_fade(feat.tail(int(p.get("window", 45)) + 5), p)
+        except Exception:
+            edge_signal = None
         traps: list = []
         try:
             from .agents.analysis import analyze
@@ -44,7 +54,7 @@ def build_context(symbol: str, expiry: int, kl: pd.DataFrame, feat: pd.DataFrame
             "symbol": symbol, "expiry_minutes": expiry, "available": True,
             "price": price, "recent_closes": closes,
             "cvd_z": round(cvd_z, 3), "buy_ratio": round(buy_ratio, 3),
-            "bias": bias, "traps": traps,
+            "edge_signal": edge_signal, "bias": bias, "traps": traps,
         }
     except Exception as e:  # context must never crash the loop
         logger.debug("[event_contract] build_context failed: %s", e)
@@ -54,10 +64,12 @@ def build_context(symbol: str, expiry: int, kl: pd.DataFrame, feat: pd.DataFrame
 _SYSTEM = (
     "You trade a binary up/down event contract. At the current price you open a "
     "position; it settles after `expiry_minutes`. If price is ABOVE entry you win "
-    "a 'long', if BELOW you win a 'short'. Given the context, answer strict JSON "
-    '{"direction":"long"|"short"|"none","confidence":0..1,"reason":"..."}. Prefer '
-    "trend continuation; if a high-severity trap is present, prefer none. Answer "
-    "none when the edge is unclear."
+    "a 'long', if BELOW you win a 'short'. The context includes `edge_signal` — a "
+    "proven quantitative order-flow edge with ~58-60% historical win rate. "
+    "STRONGLY align your direction with edge_signal. Do NOT take the opposite side "
+    "of edge_signal. Answer 'none' (skip) when edge_signal is null, or when a "
+    "high-severity trap directly contradicts it. Reply strict JSON "
+    '{"direction":"long"|"short"|"none","confidence":0..1,"reason":"..."}.'
 )
 
 
@@ -97,7 +109,12 @@ def decide(symbol: str, expiry: int, exchange: str) -> dict:
         return fail  # not configured -> no AI trade this tick
     try:
         kl, feat = _load_data(exchange, symbol)
-        ctx = build_context(symbol, expiry, kl, feat)
+        try:
+            from . import config_store as cs
+            params = cs.params_for(symbol, expiry)
+        except Exception:
+            params = None
+        ctx = build_context(symbol, expiry, kl, feat, params)
         if not ctx.get("available"):
             return fail
         verdict = _call_llm(ctx)
