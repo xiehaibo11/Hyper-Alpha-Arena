@@ -224,6 +224,9 @@ class EventContractConfigPatch(BaseModel):
     default_signal: str | None = None
     daily_reset_tz: str | None = None
     signal_params: dict | None = None
+    adaptive: bool | None = None
+    ai_prefilter: bool | None = None
+    regime_filter: bool | None = None
 
 
 @router.get("/config")
