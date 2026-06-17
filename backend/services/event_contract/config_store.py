@@ -15,7 +15,7 @@ _CACHE: dict | None = None
 _LOCK = threading.Lock()
 
 _SCALAR_KEYS = ("symbols", "expiries", "payout", "default_signal", "daily_reset_tz",
-                "adaptive")
+                "adaptive", "ai_prefilter")
 
 
 def _default_config() -> dict:
@@ -28,6 +28,7 @@ def _default_config() -> dict:
         # opt-in: when true and default_signal is agent_consensus, the live
         # simulator runs the multi-agent engine through the memory loop.
         "adaptive": False,
+        "ai_prefilter": False,
         "signal_params": {f"{s}:{e}": dict(p) for (s, e), p in _defaults.SIGNAL_PARAMS.items()},
     }
 

@@ -38,7 +38,7 @@ def overview():
 
 @router.get("/strategies")
 def strategies():
-    return {"ta": list_strategies(), "order_flow": list(OF_SIGNALS.keys())}
+    return {"ta": list_strategies(), "order_flow": list(OF_SIGNALS.keys()) + ["ai_llm"]}
 
 
 @router.get("/knowledge")

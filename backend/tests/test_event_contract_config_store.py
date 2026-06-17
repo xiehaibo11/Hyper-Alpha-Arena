@@ -26,3 +26,9 @@ def test_merge_ignores_none_values():
 def test_params_for_cfg_falls_back():
     cfg = merge_config(None)
     assert params_for_cfg(cfg, "SOL", 5) == {"window": 30, "thr": 1.5}
+
+
+def test_default_has_ai_prefilter():
+    from services.event_contract.config_store import merge_config
+    cfg = merge_config(None)
+    assert cfg["ai_prefilter"] is False

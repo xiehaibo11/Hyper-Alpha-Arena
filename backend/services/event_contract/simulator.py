@@ -46,7 +46,11 @@ def _last_closed_signal(symbol: str, expiry: int, exchange: str) -> Optional[dic
     if len(closed) < lookback + 1:
         return None
     window = closed.tail(lookback)
-    if cfg.adaptive() and sig_name == "agent_consensus":
+    if sig_name == "ai_llm":
+        # AI(LLM)大脑:对该空闲格出 long/short/none
+        from . import ai_decision
+        direction = ai_decision.decide(symbol, expiry, exchange).get("direction")
+    elif cfg.adaptive() and sig_name == "agent_consensus":
         # run the multi-agent engine through the reflection/memory loop:
         # it learns from this cell's settled outcomes and vetoes losing setups.
         from .agents import adaptive_direction
