@@ -66,21 +66,45 @@ def _last_closed_signal(symbol: str, expiry: int, exchange: str) -> Optional[dic
 
 
 def current_signals(exchange: str = DEFAULT_EXCHANGE) -> list[dict]:
-    """Live signal board state for the UI: long/short/none per symbol+expiry."""
+    """Live signal board state for the UI: long/short/none per symbol+expiry.
+
+    In ai_llm mode the board reflects the current open (pending) position per cell
+    rather than re-evaluating — AI decisions are made (and cost tokens) only in the
+    scheduled run_cycle, never on every UI poll.
+    """
     out: list[dict] = []
-    for symbol in cfg.symbols():
-        kl = load_klines(exchange, symbol, limit=5)
-        price = float(kl["close"].iloc[-1]) if not kl.empty else None
-        for expiry in cfg.expiries():
-            sig = _last_closed_signal(symbol, expiry, exchange)
-            out.append({
-                "exchange": exchange,
-                "symbol": symbol,
-                "expiry_minutes": expiry,
-                "direction": (sig or {}).get("direction") or "none",
-                "signal_minute": (sig or {}).get("signal_minute"),
-                "price": price,
-            })
+    ai_mode = cfg.default_signal() == "ai_llm"
+    db = SessionLocal() if ai_mode else None
+    try:
+        for symbol in cfg.symbols():
+            kl = load_klines(exchange, symbol, limit=5)
+            price = float(kl["close"].iloc[-1]) if not kl.empty else None
+            for expiry in cfg.expiries():
+                if ai_mode:
+                    o = (db.query(EventContractOrder)
+                         .filter(EventContractOrder.mode == "live",
+                                 EventContractOrder.symbol == symbol,
+                                 EventContractOrder.expiry_minutes == expiry,
+                                 EventContractOrder.exchange == exchange,
+                                 EventContractOrder.result == "pending")
+                         .order_by(EventContractOrder.id.desc()).first())
+                    direction = o.direction if o else "none"
+                    signal_minute = int(o.signal_time.timestamp()) if o and o.signal_time else None
+                else:
+                    sig = _last_closed_signal(symbol, expiry, exchange)
+                    direction = (sig or {}).get("direction") or "none"
+                    signal_minute = (sig or {}).get("signal_minute")
+                out.append({
+                    "exchange": exchange,
+                    "symbol": symbol,
+                    "expiry_minutes": expiry,
+                    "direction": direction,
+                    "signal_minute": signal_minute,
+                    "price": price,
+                })
+    finally:
+        if db is not None:
+            db.close()
     return out
 
 
