@@ -215,6 +215,15 @@ def run_cycle(exchange: str = DEFAULT_EXCHANGE) -> dict:
         refresh_recent(exchange)
     except Exception as e:
         logger.debug(f"[event_contract] refresh_recent skipped: {e}")
+    try:
+        # exchanges without kline taker splits (Crypto.com/Gate): rebuild CVD
+        # from the public per-trade feed into market_trades_aggregated.
+        from .trade_orderflow import supports_trade_orderflow, poll_and_store
+        if supports_trade_orderflow(exchange):
+            for sym in cfg.symbols():
+                poll_and_store(exchange, sym)
+    except Exception as e:
+        logger.debug(f"[event_contract] trade_orderflow skipped: {e}")
     settled = settle_due_orders(exchange)
     opened = run_signal_cycle(exchange)
     if opened or settled:

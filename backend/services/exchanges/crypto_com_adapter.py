@@ -67,3 +67,32 @@ class CryptoComAdapter:
             ))
         klines.sort(key=lambda x: x.timestamp)
         return klines
+
+    def fetch_trades(self, symbol: str, limit: int = 200) -> List[dict]:
+        """Return recent taker trades for CVD order-flow.
+
+        [{'ts_ms':int, 'price':float, 'size':float(coin), 'side':'buy'|'sell',
+          'notional':float}]. `side` is the taker direction. Returns [] on error.
+        """
+        try:
+            params = {
+                "instrument_name": self._to_exchange_symbol(symbol),
+                "count": min(int(limit), 300),  # Crypto.com max 300
+            }
+            resp = requests.get(f"{_BASE}/public/get-trades", params=params, timeout=10)
+            resp.raise_for_status()
+            rows = resp.json().get("result", {}).get("data", []) or []
+            out: List[dict] = []
+            for t in rows:
+                size = float(t["q"])
+                price = float(t["p"])
+                out.append({
+                    "ts_ms": int(t["t"]),
+                    "price": price,
+                    "size": size,
+                    "side": str(t["s"]).lower(),
+                    "notional": size * price,
+                })
+            return out
+        except Exception:
+            return []

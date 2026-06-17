@@ -75,3 +75,36 @@ class GateAdapter:
             ))
         klines.sort(key=lambda x: x.timestamp)
         return klines
+
+    def fetch_trades(self, symbol: str, limit: int = 200) -> List[dict]:
+        """Return recent taker trades for CVD order-flow.
+
+        [{'ts_ms':int, 'price':float, 'size':float(coin), 'side':'buy'|'sell',
+          'notional':float}]. Gate `size` is signed contracts (>0 taker buy,
+          <0 taker sell); coin = abs(size) * quanto_multiplier. Returns [] on error.
+        """
+        try:
+            params = {
+                "contract": self._to_exchange_symbol(symbol),
+                "limit": min(int(limit), 1000),  # Gate trades max 1000
+            }
+            resp = requests.get(f"{_BASE}/trades", params=params, timeout=10)
+            resp.raise_for_status()
+            rows = resp.json() or []
+            mult = float(self._multiplier(symbol))
+            out: List[dict] = []
+            for t in rows:
+                raw = float(t["size"])
+                side = "buy" if raw > 0 else "sell"
+                coin = abs(raw) * mult
+                price = float(t["price"])
+                out.append({
+                    "ts_ms": int(float(t["create_time_ms"]) * 1000),
+                    "price": price,
+                    "size": coin,
+                    "side": side,
+                    "notional": coin * price,
+                })
+            return out
+        except Exception:
+            return []
