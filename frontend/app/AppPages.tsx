@@ -99,40 +99,11 @@ export function AppMainContent(props: AppMainContentProps) {
         <HyperAiPage />
       </div>
 
+      {/* Dashboard is now the event-contract view (event-contract-only product) */}
       {currentPage === 'comprehensive' && (
-        tradingMode === 'paper' ? (
-          <div className="flex flex-col flex-1 min-h-0 overflow-hidden pr-1">
-            <ComprehensiveView
-              overview={effectiveOverview}
-              positions={positions}
-              orders={orders}
-              trades={trades}
-              aiDecisions={aiDecisions}
-              allAssetCurves={allAssetCurves}
-              wsRef={wsRef}
-              onSwitchUser={onSwitchUser}
-              onSwitchAccount={onSwitchAccount}
-              onRefreshData={refreshData}
-              accountRefreshTrigger={accountRefreshTrigger}
-              accounts={accounts}
-              loadingAccounts={accountsLoading}
-              onPageChange={onPageChange}
-            />
-          </div>
-        ) : (
-          <>
-            <div className="md:hidden flex flex-col flex-1 min-h-0">
-              <MobileDashboard />
-            </div>
-            <div className="hidden md:flex flex-col flex-1 min-h-0">
-              <HyperliquidView
-                wsRef={wsRef}
-                refreshKey={hyperliquidRefreshKey}
-                onPageChange={onPageChange}
-              />
-            </div>
-          </>
-        )
+        <div className="flex flex-col flex-1 min-h-0 overflow-hidden">
+          <EventContractPage />
+        </div>
       )}
 
       {currentPage === 'system-logs' && <SystemLogs />}
