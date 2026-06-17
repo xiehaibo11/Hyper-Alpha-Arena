@@ -6,6 +6,8 @@ import {
 } from '@/lib/eventContractApi'
 import EventContractConfigPanel from './EventContractConfigPanel'
 import EventContractChart from './EventContractChart'
+import AnalysisPanel from './AnalysisPanel'
+import HistoryChart from './HistoryChart'
 
 const EXCHANGES = ['hyperliquid', 'binance', 'okx'] as const
 
@@ -86,6 +88,7 @@ export default function EventContractPage() {
   return (
     <div className="h-full overflow-auto">
       <div className="flex gap-4 items-start">
+        <AnalysisPanel exchange={exchange} symbol={chartSymbol} period="1m" />
         <div className="flex-1">
           <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
             <h2 className="text-lg font-semibold">{t('eventContract.signalBoard', '事件合约信号 (多/空/无)')}</h2>
@@ -140,6 +143,17 @@ export default function EventContractPage() {
           </span>
         </div>
         <EventContractChart exchange={exchange} symbol={chartSymbol} expiry={chartExpiry} />
+      </div>
+
+      <div className="mt-6 border rounded-lg p-4 bg-card">
+        <div className="flex items-center gap-3 mb-3 flex-wrap">
+          <h3 className="font-semibold">{t('eventContract.history', '历史 K 线 (近一年走势)')}</h3>
+          <select className="border rounded px-2 py-1 text-sm bg-background" value={chartSymbol} onChange={(e) => setChartSymbol(e.target.value)}>
+            <option value="BTC">BTC</option><option value="ETH">ETH</option>
+          </select>
+          <span className="text-xs text-muted-foreground">{t('eventContract.historyNote', '日线 · 看大趋势与历史形态')}</span>
+        </div>
+        <HistoryChart exchange={exchange} symbol={chartSymbol} period="1d" limit={365} />
       </div>
 
       <div className="mt-6 border rounded-lg p-4 bg-card">

@@ -1,3 +1,4 @@
+import { forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
@@ -7,7 +8,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 
-interface UsageGuideDialogProps {
+interface UsageGuideDialogProps extends React.HTMLAttributes<HTMLElement> {
   children: React.ReactNode
 }
 
@@ -87,14 +88,15 @@ const GUIDE: Record<'zh' | 'en', { title: string; sections: GuideSection[] }> = 
   },
 }
 
-export default function UsageGuideDialog({ children }: UsageGuideDialogProps) {
+const UsageGuideDialog = forwardRef<HTMLElement, UsageGuideDialogProps>(
+  function UsageGuideDialog({ children, ...triggerProps }, ref) {
   const { i18n } = useTranslation()
   const lang = i18n.language?.startsWith('zh') ? 'zh' : 'en'
   const guide = GUIDE[lang]
 
   return (
     <Dialog>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogTrigger asChild ref={ref} {...triggerProps}>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-lg max-h-[80vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{guide.title}</DialogTitle>
@@ -114,4 +116,6 @@ export default function UsageGuideDialog({ children }: UsageGuideDialogProps) {
       </DialogContent>
     </Dialog>
   )
-}
+})
+
+export default UsageGuideDialog

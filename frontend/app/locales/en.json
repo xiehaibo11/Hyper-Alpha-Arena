@@ -2021,6 +2021,15 @@
     }
   },
   "eventContract": {
+    "analysis": "Advanced Analysis",
+    "analysisNoData": "Not enough candle data yet",
+    "confidence": "Confidence",
+    "longReasons": "Reasons to go LONG",
+    "shortReasons": "Reasons to go SHORT",
+    "traps": "Traps to avoid (坑)",
+    "noTraps": "No obvious traps right now",
+    "history": "Historical K-line (past year)",
+    "historyNote": "Daily candles · big-picture trend & past patterns",
     "config": "Config",
     "signalParams": "Signal params (window / thr)",
     "resetTz": "Reset timezone",

@@ -2041,6 +2041,15 @@
     }
   },
   "eventContract": {
+    "analysis": "高级分析",
+    "analysisNoData": "暂无足够 K 线数据",
+    "confidence": "置信度",
+    "longReasons": "做多理由",
+    "shortReasons": "做空理由",
+    "traps": "不能踩的坑 / 陷阱",
+    "noTraps": "当前无明显陷阱",
+    "history": "历史 K 线 (近一年走势)",
+    "historyNote": "日线 · 看大趋势与历史形态",
     "config": "配置",
     "signalParams": "信号参数 (window / thr)",
     "resetTz": "重置时区",

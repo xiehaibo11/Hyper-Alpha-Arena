@@ -105,3 +105,37 @@ export function getSignalHistory(exchange: string, symbol: string, expiry: numbe
     `/api/event-contract/signals/history?exchange=${exchange}&symbol=${symbol}&expiry_minutes=${expiry}&limit=${limit}`,
   )
 }
+
+// --- 高级 K 线分析 + 陷阱（坑） ---------------------------------------------
+
+export interface AnalysisTrap { id: string; title: string; detail: string; severity: 'high' | 'medium' | 'low' }
+export interface AnalysisReport {
+  price: number
+  bias: 'long' | 'short' | 'neutral'
+  confidence: number
+  trend: { direction: 'up' | 'down' | 'mixed'; strong: boolean; ema10: number; sma50: number; sma200: number }
+  momentum: { rsi: number; macd_cross: 'bull' | 'bear'; macd_hist: number }
+  volatility: { atr: number; bb_upper: number; bb_lower: number; bb_width: number }
+  volume: { vwma: number; vol_z: number; price_vs_vwma: string }
+  long_reasons: string[]
+  short_reasons: string[]
+  traps: AnalysisTrap[]
+  summary: string
+}
+
+export function getAnalysis(symbol: string, exchange: string, period = '1m', limit = 300) {
+  return get<{ available: boolean; report: AnalysisReport | null }>(
+    `/api/event-contract/analysis?symbol=${symbol}&exchange=${exchange}&period=${period}&limit=${limit}`,
+  )
+}
+
+export interface IndicatorDoc { key: string; name: string; cat: string; measures: string; usage: string; trap: string }
+export function getKnowledge() {
+  return get<{ indicators: IndicatorDoc[]; traps: AnalysisTrap[] }>('/api/event-contract/knowledge')
+}
+
+export function getKlineHistory(symbol: string, exchange: string, period = '1d', limit = 365) {
+  return get<{ count: number; candles: SignalCandle[] }>(
+    `/api/event-contract/klines/history?symbol=${symbol}&exchange=${exchange}&period=${period}&limit=${limit}`,
+  )
+}
