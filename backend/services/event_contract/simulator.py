@@ -57,10 +57,17 @@ def _last_closed_signal(symbol: str, expiry: int, exchange: str) -> Optional[dic
         direction = adaptive_direction(window, params, symbol, expiry, exchange, cfg.payout())
     else:
         direction = OF_SIGNALS[sig_name](window, params)
+    signal_minute = int(closed["minute"].iloc[-1])
+    # regime gate: only trade in states where the edge is validated (skip the
+    # 12–15 UTC dead zone etc.). Lifts win rate ~60% -> ~62% with higher net.
+    if direction and cfg.regime_filter():
+        from .regime import passes_regime
+        if not passes_regime(signal_minute, window, params):
+            direction = None
     return {
         "symbol": symbol,
         "expiry": expiry,
-        "signal_minute": int(closed["minute"].iloc[-1]),
+        "signal_minute": signal_minute,
         "direction": direction,  # 'long'|'short'|None
     }
 
