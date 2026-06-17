@@ -14,7 +14,8 @@ from . import config as _defaults
 _CACHE: dict | None = None
 _LOCK = threading.Lock()
 
-_SCALAR_KEYS = ("symbols", "expiries", "payout", "default_signal", "daily_reset_tz")
+_SCALAR_KEYS = ("symbols", "expiries", "payout", "default_signal", "daily_reset_tz",
+                "adaptive")
 
 
 def _default_config() -> dict:
@@ -24,6 +25,9 @@ def _default_config() -> dict:
         "payout": _defaults.PAYOUT,
         "default_signal": _defaults.DEFAULT_SIGNAL,
         "daily_reset_tz": _defaults.DAILY_RESET_TZ,
+        # opt-in: when true and default_signal is agent_consensus, the live
+        # simulator runs the multi-agent engine through the memory loop.
+        "adaptive": False,
         "signal_params": {f"{s}:{e}": dict(p) for (s, e), p in _defaults.SIGNAL_PARAMS.items()},
     }
 
@@ -108,6 +112,10 @@ def default_signal() -> str:
 
 def daily_reset_tz() -> str:
     return get_config()["daily_reset_tz"]
+
+
+def adaptive() -> bool:
+    return bool(get_config().get("adaptive", False))
 
 
 def params_for(symbol: str, expiry: int) -> dict:

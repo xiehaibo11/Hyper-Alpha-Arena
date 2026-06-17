@@ -16,6 +16,51 @@ from database.connection import SessionLocal
 from .data import CANDLE_SECONDS, load_klines
 
 
+_OF_COLS = ["minute", "cvd", "buy_ratio", "large_imb", "volume"]
+
+
+def _orderflow_from_klines_db(
+    exchange: str, symbol: str, limit: int,
+    start_ts: Optional[int], end_ts: Optional[int],
+) -> pd.DataFrame:
+    """Build 1m order-flow features from taker volume persisted in crypto_klines."""
+    clauses = ["exchange = :ex", "symbol = :sym", "period = '1m'",
+               "environment = 'mainnet'", "taker_buy_volume IS NOT NULL"]
+    p: dict = {"ex": exchange, "sym": symbol, "lim": int(limit)}
+    if start_ts is not None:
+        clauses.append("timestamp >= :sts")
+        p["sts"] = int(start_ts)
+    if end_ts is not None:
+        clauses.append("timestamp <= :ets")
+        p["ets"] = int(end_ts)
+    sql = text(
+        f"""
+        SELECT timestamp, taker_buy_volume, taker_sell_volume,
+               taker_buy_notional, taker_sell_notional, volume
+        FROM crypto_klines
+        WHERE {' AND '.join(clauses)}
+        ORDER BY timestamp DESC LIMIT :lim
+        """
+    )
+    db = SessionLocal()
+    try:
+        rows = db.execute(sql, p).fetchall()
+    finally:
+        db.close()
+    if not rows:
+        return pd.DataFrame(columns=_OF_COLS)
+    df = pd.DataFrame(rows, columns=["minute", "tbv", "tsv", "tbn", "tsn", "volume"])
+    for c in ("tbv", "tsv", "tbn", "tsn", "volume"):
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+    df["minute"] = df["minute"].astype("int64")
+    df["cvd"] = df["tbv"] - df["tsv"]
+    tot = (df["tbn"] + df["tsn"]).replace(0, np.nan)
+    df["buy_ratio"] = df["tbn"] / tot
+    df["large_imb"] = 0.0
+    return (df[_OF_COLS].drop_duplicates("minute")
+            .sort_values("minute").reset_index(drop=True))
+
+
 def load_orderflow(
     exchange: str, symbol: str, limit: int = 60000,
     start_ts: Optional[int] = None, end_ts: Optional[int] = None,
@@ -24,7 +69,22 @@ def load_orderflow(
 
     start_ts/end_ts are in seconds (timestamp column is milliseconds).
     Columns: minute (int s), cvd, buy_ratio, large_imb, volume.
+
+    When the exchange's klines carry taker buy/sell volume (e.g. Binance), derive
+    the same features from 1m klines: prefer the persisted klines in crypto_klines
+    (fast, long history for tuning), fall back to a live adapter REST fetch, and
+    only then to the market_trades_aggregated WS pipeline (Hyperliquid-only).
     """
+    from .orderflow_klines import load_orderflow_klines, supports_kline_orderflow
+    if supports_kline_orderflow(exchange):
+        dbdf = _orderflow_from_klines_db(exchange, symbol, limit, start_ts, end_ts)
+        if len(dbdf) >= 120:
+            return dbdf
+        kdf = load_orderflow_klines(exchange, symbol, limit=limit,
+                                    start_ts=start_ts, end_ts=end_ts)
+        if not kdf.empty:
+            return kdf
+
     clauses = ["exchange = :ex", "symbol = :sym"]
     p: dict = {"ex": exchange, "sym": symbol, "lim": limit}
     if start_ts is not None:
@@ -136,6 +196,13 @@ OF_SIGNALS: dict[str, Callable[[pd.DataFrame, dict], Optional[str]]] = {
     "of_taker_fade": lambda f, p: of_taker_extreme(f, {**p, "fade": True}),
 }
 
+# Multi-agent consensus engine (framework borrowed from TradingAgents). Imported
+# at the bottom so the OF signal functions above are already defined when the
+# agents package wires them in — same pattern as strategies_advanced.
+from .agents import agent_consensus as _agent_consensus  # noqa: E402
+
+OF_SIGNALS["agent_consensus"] = _agent_consensus
+
 
 def backtest_orderflow(
     exchange: str, symbol: str, expiry_minutes: int, signal: str,
@@ -156,8 +223,10 @@ def backtest_orderflow(
     expiry_s = expiry_minutes * 60
     total = wins = 0
     cum = 0.0
-    lookback = 60
-    for i in range(40, len(feat)):
+    # lookback must cover the signal's window (z-score over `window` bars); a
+    # fixed 60 silently zeroes out any window > 60 — match the live simulator.
+    lookback = max(60, int((params or {}).get("window", 30)) + 5)
+    for i in range(lookback, len(feat)):
         sig = fn(feat.iloc[max(0, i - lookback): i + 1], params or {})
         if not sig:
             continue

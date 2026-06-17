@@ -41,6 +41,52 @@ def strategies():
     return {"ta": list_strategies(), "order_flow": list(OF_SIGNALS.keys())}
 
 
+@router.get("/knowledge")
+def knowledge():
+    """高级交易知识库：指标说明（含每个指标的"坑"）+ 陷阱图条目。"""
+    from services.event_contract.agents.knowledge import INDICATOR_CATALOG, TRAP_LIBRARY
+    return {"indicators": INDICATOR_CATALOG,
+            "traps": [{"id": k, **v} for k, v in TRAP_LIBRARY.items()]}
+
+
+@router.get("/analysis")
+def analysis(
+    symbol: str = Query("BTC"),
+    exchange: str = Query(ec_config.DEFAULT_EXCHANGE),
+    period: str = Query("1m"),
+    limit: int = Query(300, ge=60, le=1000),
+):
+    """左侧分析面板：当前 K 线高级解读、做多/做空理由、踩中的陷阱（坑）。"""
+    from services.event_contract.agents.analysis import analyze
+    from services.event_contract.data import load_klines
+    kl = load_klines(exchange, symbol, limit=limit, period=period)
+    if kl.empty or len(kl) < 30:
+        return {"symbol": symbol, "exchange": exchange, "period": period,
+                "available": False, "report": None}
+    rep = analyze(kl)
+    return {"symbol": symbol, "exchange": exchange, "period": period,
+            "available": True, "report": rep.as_dict()}
+
+
+@router.get("/klines/history")
+def klines_history(
+    symbol: str = Query("BTC"),
+    exchange: str = Query(ec_config.DEFAULT_EXCHANGE),
+    period: str = Query("1d"),
+    limit: int = Query(365, ge=1, le=1500),
+):
+    """历史 K 线（默认日线，limit=365 ≈ 过去一年走势）。"""
+    from services.event_contract.data import load_klines
+    kl = load_klines(exchange, symbol, limit=limit, period=period)
+    candles = [
+        {"time": int(r.timestamp), "open": float(r.open), "high": float(r.high),
+         "low": float(r.low), "close": float(r.close), "volume": float(r.volume)}
+        for r in kl.itertuples()
+    ]
+    return {"symbol": symbol, "exchange": exchange, "period": period,
+            "count": len(candles), "candles": candles}
+
+
 @router.get("/signals/live")
 def signals_live(exchange: str = Query(ec_config.DEFAULT_EXCHANGE)):
     return {"signals": current_signals(exchange)}

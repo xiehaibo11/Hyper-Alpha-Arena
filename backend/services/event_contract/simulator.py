@@ -33,16 +33,26 @@ def _utc(ts: int) -> datetime:
 
 def _last_closed_signal(symbol: str, expiry: int, exchange: str) -> Optional[dict]:
     """Evaluate the default signal on the last closed minute. Returns dict or None."""
-    feat = load_orderflow(exchange, symbol)
+    feat = load_orderflow(exchange, symbol, limit=500)
     if feat.empty:
         return None
     now_minute = (int(time.time()) // 60) * 60
     closed = feat[feat["minute"] < now_minute]
-    if len(closed) < 41:
+    sig_name = cfg.default_signal()
+    params = cfg.params_for(symbol, expiry)
+    # lookback must cover the signal's window (e.g. cvd-fade z-score over `window`
+    # bars); a fixed 60 would silently zero out any window > 60.
+    lookback = max(_LOOKBACK, int(params.get("window", 30)) + 5)
+    if len(closed) < lookback + 1:
         return None
-    fn = OF_SIGNALS[cfg.default_signal()]
-    window = closed.tail(_LOOKBACK)
-    direction = fn(window, cfg.params_for(symbol, expiry))
+    window = closed.tail(lookback)
+    if cfg.adaptive() and sig_name == "agent_consensus":
+        # run the multi-agent engine through the reflection/memory loop:
+        # it learns from this cell's settled outcomes and vetoes losing setups.
+        from .agents import adaptive_direction
+        direction = adaptive_direction(window, params, symbol, expiry, exchange, cfg.payout())
+    else:
+        direction = OF_SIGNALS[sig_name](window, params)
     return {
         "symbol": symbol,
         "expiry": expiry,
@@ -168,8 +178,15 @@ def settle_due_orders(exchange: str = DEFAULT_EXCHANGE) -> int:
 
 
 def run_cycle(exchange: str = DEFAULT_EXCHANGE) -> dict:
-    """One full tick: settle due first, then open new signals. Settling first
-    frees a just-expired cell so the no-overlap guard allows a fresh entry."""
+    """One full tick: persist latest klines, settle due first, then open signals.
+    Settling first frees a just-expired cell so the no-overlap guard allows a
+    fresh entry."""
+    try:
+        # keep the DB order-flow / price history fresh & growing for tuning
+        from .backfill import refresh_recent
+        refresh_recent(exchange)
+    except Exception as e:
+        logger.debug(f"[event_contract] refresh_recent skipped: {e}")
     settled = settle_due_orders(exchange)
     opened = run_signal_cycle(exchange)
     if opened or settled:

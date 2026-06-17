@@ -15,6 +15,44 @@ from database.connection import SessionLocal
 CANDLE_SECONDS = 60
 
 
+def _price_adapter(exchange: str):
+    """Unified adapter for OHLCV price fallback when crypto_klines is empty."""
+    ex = (exchange or "").lower()
+    if ex == "binance":
+        from services.exchanges.binance_adapter import BinanceAdapter
+        return BinanceAdapter()
+    if ex == "okx":
+        from services.exchanges.okx_adapter import OKXAdapter
+        return OKXAdapter()
+    return None
+
+
+def _klines_from_adapter(
+    exchange: str, symbol: str, start_ts, end_ts, limit, period: str
+) -> pd.DataFrame:
+    """Fetch OHLCV straight from the exchange adapter (REST) as a DB fallback."""
+    ad = _price_adapter(exchange)
+    if ad is None:
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+    try:
+        kls = ad.fetch_klines(
+            symbol, period, limit=min(int(limit or 1500), 1500),
+            start_time=int(start_ts) * 1000 if start_ts else None,
+            end_time=int(end_ts) * 1000 if end_ts else None,
+        )
+    except Exception:
+        kls = []
+    rows = [{
+        "timestamp": int(k.timestamp), "open": float(k.open_price),
+        "high": float(k.high_price), "low": float(k.low_price),
+        "close": float(k.close_price), "volume": float(k.volume),
+    } for k in kls]
+    if not rows:
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+    df = pd.DataFrame(rows)
+    return df.drop_duplicates("timestamp").sort_values("timestamp").reset_index(drop=True)
+
+
 def load_klines(
     exchange: str,
     symbol: str,
@@ -22,19 +60,22 @@ def load_klines(
     end_ts: Optional[int] = None,
     limit: Optional[int] = None,
     environment: str = "mainnet",
+    period: str = "1m",
 ) -> pd.DataFrame:
-    """Load ascending 1m candles as a DataFrame.
+    """Load ascending candles as a DataFrame.
 
-    Columns: timestamp (int seconds), open, high, low, close, volume.
-    Returns an empty DataFrame if no rows match.
+    `period` selects the candle size (default '1m' for signals; use '1d'/'1h'
+    for the historical chart). Columns: timestamp (int seconds), open, high,
+    low, close, volume. Returns an empty DataFrame if no rows match.
     """
     clauses = [
         "exchange = :exchange",
         "symbol = :symbol",
-        "period = '1m'",
+        "period = :period",
         "environment = :environment",
     ]
-    params: dict = {"exchange": exchange, "symbol": symbol, "environment": environment}
+    params: dict = {"exchange": exchange, "symbol": symbol,
+                    "environment": environment, "period": period}
     if start_ts is not None:
         clauses.append("timestamp >= :start_ts")
         params["start_ts"] = int(start_ts)
@@ -66,7 +107,9 @@ def load_klines(
         db.close()
 
     if not rows:
-        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+        # DB has no candles for this cell yet — fall back to the exchange adapter
+        # (REST) so signals/backtests work before the collector has backfilled.
+        return _klines_from_adapter(exchange, symbol, start_ts, end_ts, limit, period)
 
     df = pd.DataFrame(rows, columns=["timestamp", "open", "high", "low", "close", "volume"])
     for col in ("open", "high", "low", "close", "volume"):

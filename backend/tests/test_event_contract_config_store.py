@@ -7,7 +7,7 @@ def test_merge_returns_defaults_when_no_overrides():
     assert cfg["expiries"] == [5, 10]
     assert cfg["payout"] == 0.8
     assert cfg["default_signal"] == "of_cvd_fade"
-    assert cfg["signal_params"]["BTC:5"] == {"window": 45, "thr": 1.5}
+    assert cfg["signal_params"]["BTC:5"] == {"window": 45, "thr": 2.5}
 
 
 def test_merge_overrides_scalar_and_params():
@@ -15,7 +15,7 @@ def test_merge_overrides_scalar_and_params():
     assert cfg["payout"] == 0.9
     assert cfg["signal_params"]["BTC:5"] == {"window": 60, "thr": 2.0}
     # untouched cells keep defaults
-    assert cfg["signal_params"]["ETH:10"] == {"window": 20, "thr": 2.5}
+    assert cfg["signal_params"]["ETH:10"] == {"window": 120, "thr": 3.0}
 
 
 def test_merge_ignores_none_values():

@@ -82,6 +82,7 @@ MIGRATIONS = [
     "add_large_order_fields.py",
     "add_news_image_url.py",
     "seed_event_contract_config.py",
+    "add_taker_volume_to_crypto_klines.py",
 ]
 
 

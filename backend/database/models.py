@@ -243,6 +243,12 @@ class CryptoKline(Base):
     amount = Column(DECIMAL(18, 2), nullable=True)
     change = Column(DECIMAL(18, 6), nullable=True)
     percent = Column(DECIMAL(10, 4), nullable=True)
+    # Order-flow microstructure (Binance klines carry these directly) — lets the
+    # event-contract CVD signal read taker flow from the DB instead of REST.
+    taker_buy_volume = Column(DECIMAL(24, 8), nullable=True)
+    taker_sell_volume = Column(DECIMAL(24, 8), nullable=True)
+    taker_buy_notional = Column(DECIMAL(24, 8), nullable=True)
+    taker_sell_notional = Column(DECIMAL(24, 8), nullable=True)
     created_at = Column(TIMESTAMP, server_default=func.current_timestamp())
 
     __table_args__ = (UniqueConstraint('exchange', 'symbol', 'market', 'period', 'timestamp', 'environment'),)
