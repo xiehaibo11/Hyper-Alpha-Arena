@@ -88,7 +88,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
     name: '',
     model: '',
     base_url: '',
-    api_key: 'default-key-please-update-in-settings',
+    api_key: '',
     auto_trading_enabled: true,
   })
   const [editAccount, setEditAccount] = useState<AIAccountCreate>({
@@ -136,8 +136,11 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
         return
       }
 
-      // If AI fields are provided, test LLM connection first
-      if (newAccount.model || newAccount.base_url || newAccount.api_key) {
+      // Only gate creation on an LLM test when a real key + model + base_url are
+      // provided. Previously the form pre-filled a placeholder api_key, so the
+      // test always ran and FAILED, silently blocking creation (the model never
+      // got saved). Without a real key we just create the trader (key added later).
+      if (newAccount.api_key && newAccount.api_key.trim() && newAccount.model && newAccount.base_url) {
         setTestResult('Testing LLM connection...')
         try {
           const testResponse = await testLLMConnection({
@@ -166,7 +169,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
 
       console.log('Creating account with data:', newAccount)
       await createAccount(newAccount)
-      setNewAccount({ name: '', model: '', base_url: '', api_key: 'default-key-please-update-in-settings', auto_trading_enabled: true })
+      setNewAccount({ name: '', model: '', base_url: '', api_key: '', auto_trading_enabled: true })
       setShowAddForm(false)
       await loadAccounts()
 
