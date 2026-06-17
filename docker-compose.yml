@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:14
+    image: postgres:16
     container_name: hyper-arena-postgres
     environment:
       POSTGRES_USER: alpha_user
@@ -32,6 +32,11 @@ services:
         HTTPS_PROXY: ${HTTPS_PROXY-}
         ALL_PROXY: ${ALL_PROXY-}
     container_name: hyper-arena-app
+    # Load secrets (e.g. EVENT_CONTRACT_LLM_*) from the gitignored backend/.env.
+    # `environment:` below takes precedence, so the container DATABASE_URL stays
+    # the internal postgres:5432 (not backend/.env's localhost value).
+    env_file:
+      - ./backend/.env
     environment:
       # Database connection
       DATABASE_URL: postgresql://alpha_user:alpha_pass@postgres:5432/alpha_arena
