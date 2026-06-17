@@ -27,6 +27,9 @@ def _price_adapter(exchange: str):
     if ex in ("crypto_com", "cryptocom", "crypto.com"):
         from services.exchanges.crypto_com_adapter import CryptoComAdapter
         return CryptoComAdapter()
+    if ex in ("gate", "gateio", "gate.io", "gate_io"):
+        from services.exchanges.gate_adapter import GateAdapter
+        return GateAdapter()
     return None
 
 
