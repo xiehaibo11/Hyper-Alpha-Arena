@@ -25,6 +25,13 @@ from services.ai_exchange_query_tools import build_decision_exchange_snapshot
 
 logger = logging.getLogger(__name__)
 
+
+def perpetual_brain_enabled() -> bool:
+    """Perpetual AI trading is retired by default; re-enable with env."""
+    import os
+    return os.getenv("PERPETUAL_BRAIN_ENABLED", "false").strip().lower() in ("1", "true", "yes")
+
+
 MISSING_OUTPUT_FORMAT_ERROR = (
     "Prompt template must include {output_format}; do not hand-write the output JSON schema."
 )
@@ -2084,6 +2091,17 @@ def call_ai_for_decision(
         trigger_context: Optional context about what triggered this decision (signal or scheduled)
         exchange: Exchange to use for market data ("hyperliquid" or "binance")
     """
+    # Perpetual AI brain is retired by default. When disabled, this function is a
+    # no-op: return the same "no decision" value (None) as other early-exit paths,
+    # so callers are unaffected and no orders are placed.
+    if not perpetual_brain_enabled():
+        logger.info(
+            "Perpetual brain disabled (PERPETUAL_BRAIN_ENABLED off) - skipping AI "
+            "decision for account %s",
+            getattr(account, "name", "?"),
+        )
+        return None
+
     # Check if this is a default API key
     if _is_default_api_key(account.api_key):
         logger.info(f"Skipping AI trading for account {account.name} - using default API key")
