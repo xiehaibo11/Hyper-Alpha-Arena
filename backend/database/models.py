@@ -41,6 +41,7 @@ class Account(Base):
     # Account Identity
     name = Column(String(100), nullable=False)  # Display name (e.g., "GPT Trader", "Claude Analyst")
     account_type = Column(String(20), nullable=False, default="AI")  # "AI" or "MANUAL"
+    exchange = Column(String(20), nullable=True, default="binance")  # binance | okx | hyperliquid
     is_active = Column(String(10), nullable=False, default="true")
     auto_trading_enabled = Column(String(10), nullable=False, default="true")
 

@@ -426,6 +426,7 @@ export async function createAccount(account: TradingAccountCreate): Promise<Trad
       model: account.model,
       base_url: account.base_url,
       api_key: account.api_key,
+      exchange: (account as { exchange?: string }).exchange || 'binance',
       account_type: account.account_type || 'AI',
       initial_capital: account.initial_capital || 10000,
       auto_trading_enabled: account.auto_trading_enabled ?? true,

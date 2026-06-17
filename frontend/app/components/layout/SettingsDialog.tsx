@@ -44,13 +44,34 @@ interface AIAccount extends TradingAccount {
   model?: string
   base_url?: string
   api_key?: string
+  exchange?: string
 }
 
 interface AIAccountCreate extends TradingAccountCreate {
   model?: string
   base_url?: string
   api_key?: string
+  exchange?: string
 }
+
+// Known models offered as a dropdown (datalist) — still free-typeable for custom.
+const MODEL_OPTIONS = [
+  'deepseek-chat', 'deepseek-reasoner',
+  'gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo',
+  'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022',
+  'gemini-2.0-flash', 'gemini-1.5-pro',
+  'qwen-plus', 'moonshot-v1-8k',
+]
+
+// Exchanges an AI trader can be configured for.
+const EXCHANGE_OPTIONS = [
+  { value: 'binance', label: 'Binance' },
+  { value: 'okx', label: 'OKX' },
+  { value: 'hyperliquid', label: 'Hyperliquid' },
+]
+
+const SELECT_CLASS =
+  'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm focus:outline-none focus:ring-1 focus:ring-ring'
 
 function formatDependencies(deps: string[], t: (key: string) => string): string {
   const keyMap: [RegExp, string][] = [
@@ -89,6 +110,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
     model: '',
     base_url: '',
     api_key: '',
+    exchange: 'binance',
     auto_trading_enabled: true,
   })
   const [editAccount, setEditAccount] = useState<AIAccountCreate>({
@@ -96,6 +118,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
     model: '',
     base_url: '',
     api_key: 'default-key-please-update-in-settings',
+    exchange: 'binance',
     auto_trading_enabled: true,
   })
 
@@ -267,6 +290,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
       model: account.model || '',
       base_url: account.base_url || '',
       api_key: account.api_key || '',
+      exchange: (account as AIAccount).exchange || 'binance',
       auto_trading_enabled: account.auto_trading_enabled ?? true,
     })
   }
@@ -445,14 +469,27 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
                           value={newAccount.name || ''}
                           onChange={(e) => setNewAccount({ ...newAccount, name: e.target.value })}
                         />
-                        <Input
-                          placeholder="Model (e.g., gpt-4)"
-                          value={newAccount.model || ''}
-                          onChange={(e) => setNewAccount({ ...newAccount, model: e.target.value })}
-                        />
+                        <select
+                          className={SELECT_CLASS}
+                          value={newAccount.exchange || 'binance'}
+                          onChange={(e) => setNewAccount({ ...newAccount, exchange: e.target.value })}
+                        >
+                          {EXCHANGE_OPTIONS.map((x) => (
+                            <option key={x.value} value={x.value}>{x.label}</option>
+                          ))}
+                        </select>
                       </div>
                       <Input
-                        placeholder="Base URL (e.g., https://api.openai.com/v1)"
+                        placeholder="Model (e.g., deepseek-chat)"
+                        list="ai-model-list"
+                        value={newAccount.model || ''}
+                        onChange={(e) => setNewAccount({ ...newAccount, model: e.target.value })}
+                      />
+                      <datalist id="ai-model-list">
+                        {MODEL_OPTIONS.map((m) => (<option key={m} value={m} />))}
+                      </datalist>
+                      <Input
+                        placeholder="Base URL (e.g., https://api.deepseek.com)"
                         value={newAccount.base_url || ''}
                         onChange={(e) => setNewAccount({ ...newAccount, base_url: e.target.value })}
                       />
@@ -496,12 +533,22 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
                             value={editAccount.name || ''}
                             onChange={(e) => setEditAccount({ ...editAccount, name: e.target.value })}
                           />
-                          <Input
-                            placeholder="Model"
-                            value={editAccount.model || ''}
-                            onChange={(e) => setEditAccount({ ...editAccount, model: e.target.value })}
-                          />
+                          <select
+                            className={SELECT_CLASS}
+                            value={editAccount.exchange || 'binance'}
+                            onChange={(e) => setEditAccount({ ...editAccount, exchange: e.target.value })}
+                          >
+                            {EXCHANGE_OPTIONS.map((x) => (
+                              <option key={x.value} value={x.value}>{x.label}</option>
+                            ))}
+                          </select>
                         </div>
+                        <Input
+                          placeholder="Model"
+                          list="ai-model-list"
+                          value={editAccount.model || ''}
+                          onChange={(e) => setEditAccount({ ...editAccount, model: e.target.value })}
+                        />
                         <Input
                           placeholder="Base URL"
                           value={editAccount.base_url || ''}
@@ -544,6 +591,7 @@ export default function SettingsDialog({ open, onOpenChange, onAccountUpdated, e
                           <div className="space-y-1 flex-1">
                             <div className="font-medium">{account.name}</div>
                             <div className="text-xs text-muted-foreground">
+                              {(account as AIAccount).exchange ? `${(account as AIAccount).exchange} · ` : ''}
                               {account.model ? `Model: ${account.model}` : 'No model configured'}
                             </div>
                             {account.base_url && (
