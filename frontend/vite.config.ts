@@ -127,6 +127,12 @@ export default defineConfig({
         changeOrigin: true,
         ws: true,
       },
+      // Backend serves branding/logo assets under /static (e.g. logo_app.png);
+      // proxy it in dev so those URLs resolve like they do in production.
+      '/static': {
+        target: devApiTarget,
+        changeOrigin: true,
+      },
     },
   },
   resolve: {

@@ -1,7 +1,12 @@
 import { useState } from 'react'
-import { BarChart3, FileText, NotebookPen, Coins, MessageSquare, Mail, Bot, Ghost, ScrollText, Settings, FlaskConical, Github, ShieldCheck, AlertTriangle } from 'lucide-react'
+import { BarChart3, MessageSquare, Mail, Settings, ShieldCheck, AlertTriangle } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 import ContactDialog from '@/components/contact/ContactDialog'
+import UsageGuideDialog from '@/components/layout/UsageGuideDialog'
+import { NAV_ITEMS } from './navItems'
+import { KLinesIcon } from './navIcons'
+import { productConfig, isPageVisible } from '@/lib/productConfig'
+import { SITE_NAME, SITE_URL, SITE_LOGO } from '@/lib/branding'
 import ExchangeModal from '@/components/exchange/ExchangeModal'
 import ExchangeIcon from '@/components/exchange/ExchangeIcon'
 import TradingModeConfirmDialog from '@/components/trading/TradingModeConfirmDialog'
@@ -23,39 +28,6 @@ const AITraderIcon = ({ className }: { className?: string }) => (
     <path d="M345.284 575.208m-114.972 0a114.972 114.972 0 1 0 229.944 0 114.972 114.972 0 1 0-229.944 0Z" fill="#E6E8F3"/>
     <path d="M672.08 575.208m-114.972 0a114.972 114.972 0 1 0 229.944 0 114.972 114.972 0 1 0-229.944 0Z" fill="#E6E8F3"/>
     <path d="M320 555.208h48.792V604H320zM647.688 555.208h48.792V604h-48.792zM374.76 782h274.484v36H374.76z" fill="#6E6E96"/>
-  </svg>
-)
-
-// K-Lines icon component (custom SVG)
-const KLinesIcon = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 1026 1024" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-    <path d="M59.733333 910.222222V51.2h-56.888889v910.222222h1024V910.222222z"/>
-    <path d="M258.844444 620.088889h56.888889v-85.333333h56.888889v-227.555556h-56.888889v-56.888889h-56.888889v56.888889h-56.888888v227.555556h56.888888zM514.844444 790.755556h56.888889v-256h56.888889v-341.333334h-56.888889v-113.777778h-56.888889v113.777778h-56.888888v341.333334h56.888888zM770.844444 705.422222h56.888889v-142.222222h56.888889v-199.111111h-56.888889v-142.222222h-56.888889v142.222222h-56.888888v199.111111h56.888888z"/>
-  </svg>
-)
-
-// Premium icon component (custom SVG)
-const PremiumIcon = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-    <path d="M270.218971 121.212343h483.474286a29.257143 29.257143 0 0 1 23.3472 11.644343l188.416 249.885257a29.257143 29.257143 0 0 1-1.8432 37.419886L533.942857 887.749486a29.257143 29.257143 0 0 1-43.037257 0.058514L60.416 421.595429a29.257143 29.257143 0 0 1-1.930971-37.390629l188.328228-251.260343a29.257143 29.257143 0 0 1 23.405714-11.702857z" fill="#FFA100"/>
-    <path d="M768.292571 121.212343l197.163886 261.558857a29.257143 29.257143 0 0 1-1.8432 37.390629L532.714057 889.066057a11.702857 11.702857 0 0 1-20.304457-7.899428L512 257.024l256.292571-135.840914z" fill="#FFC663"/>
-    <path d="M721.598171 386.340571a29.257143 29.257143 0 0 1 0.994743 1.024l22.7328 23.873829a29.257143 29.257143 0 0 1 0 40.3456l-189.410743 198.890057-22.7328 23.873829a29.257143 29.257143 0 0 1-1.726171 1.667657l1.755429-1.667657a29.4912 29.4912 0 0 1-19.456 9.0112 28.935314 28.935314 0 0 1-18.080915-4.9152 30.193371 30.193371 0 0 1-4.856685-4.096l1.960228 1.872457-0.965486-0.877714-0.994742-0.994743-22.7328-23.873829-189.410743-198.890057a29.257143 29.257143 0 0 1 0-40.374857l22.7328-23.844572a29.257143 29.257143 0 0 1 42.364343 0L512 563.960686l168.228571-176.596115a29.257143 29.257143 0 0 1 41.3696-1.024z" fill="currentColor"/>
-  </svg>
-)
-
-// Signal icon component (custom SVG)
-const SignalIcon = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 1024 1024" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-    <path d="M1024 483.2c-6.4-124.8-60.8-243.2-150.4-332.8C784 60.8 665.6 9.6 540.8 0h-57.6C358.4 9.6 240 60.8 150.4 150.4 60.8 240 9.6 358.4 0 483.2v57.6c6.4 124.8 60.8 243.2 150.4 332.8 89.6 89.6 208 140.8 332.8 150.4h57.6c124.8-6.4 243.2-60.8 332.8-150.4 89.6-89.6 140.8-208 150.4-332.8v-57.6zM396.8 262.4c28.8-12.8 57.6-22.4 86.4-25.6v124.8c-60.8 12.8-108.8 60.8-121.6 121.6H236.8c3.2-41.6 19.2-83.2 41.6-118.4 12.8 6.4 25.6 9.6 38.4 9.6 48 0 83.2-38.4 83.2-83.2 0-12.8 0-19.2-3.2-28.8zM230.4 288c0 12.8 3.2 22.4 6.4 35.2-32 48-51.2 102.4-57.6 160H57.6C70.4 256 256 70.4 483.2 57.6v124.8c-44.8 3.2-86.4 16-124.8 35.2-12.8-6.4-28.8-12.8-44.8-12.8-44.8 0-83.2 38.4-83.2 83.2z m131.2 252.8c12.8 60.8 60.8 108.8 121.6 121.6v124.8c-128-12.8-233.6-115.2-246.4-246.4h124.8z m121.6 300.8v124.8C256 953.6 70.4 768 57.6 540.8h124.8c12.8 160 140.8 288 300.8 300.8z m0-300.8v64c-32-9.6-54.4-35.2-64-64h64z m0-121.6v64h-64c9.6-32 32-54.4 64-64z m57.6 64v-64c32 9.6 54.4 35.2 64 64h-64z m188.8 57.6c6.4 22.4 25.6 38.4 44.8 48-32 108.8-124.8 185.6-236.8 198.4v-124.8c60.8-12.8 108.8-60.8 121.6-121.6h70.4z m3.2-57.6h-70.4c-12.8-60.8-60.8-108.8-121.6-121.6V236.8c112 12.8 204.8 89.6 236.8 198.4-22.4 9.6-38.4 25.6-44.8 48z m-192 121.6v-64h64c-9.6 32-32 54.4-64 64z m0 236.8c70.4-6.4 134.4-32 185.6-76.8 25.6-22.4 51.2-51.2 67.2-80 19.2-28.8 32-60.8 38.4-92.8 25.6-6.4 48-28.8 54.4-51.2h76.8C953.6 768 768 953.6 540.8 966.4v-124.8z m256-502.4c-19.2-28.8-41.6-57.6-67.2-80-54.4-44.8-118.4-70.4-185.6-76.8V57.6c224 12.8 409.6 198.4 422.4 425.6h-76.8c-9.6-25.6-28.8-44.8-54.4-51.2-9.6-35.2-22.4-64-38.4-92.8z"/>
-  </svg>
-)
-
-// Attribution icon component (custom SVG)
-const AttributionIcon = ({ className }: { className?: string }) => (
-  <svg className={className} viewBox="0 0 1024 1024" fill="currentColor" xmlns="http://www.w3.org/2000/svg">
-    <path d="M341.333333 426.666667a213.333333 213.333333 0 1 0 426.666667 0 213.333333 213.333333 0 0 0-426.666667 0z" opacity="0.9"/>
-    <path d="M259.84 470.4c-75.605333 18.773333-131.584 86.613333-131.754667 167.253333-0.170667 93.824 78.677333 172.416 173.397334 173.013334a174.293333 174.293333 0 0 0 166.144-117.162667 33.194667 33.194667 0 0 0-19.84-41.856 240.768 240.768 0 0 1-147.328-158.293333 33.536 33.536 0 0 0-40.618667-22.997334v0.042667z" opacity="0.6"/>
-    <path d="M170.666667 245.333333a74.709333 74.709333 0 0 0 112 64.682667A74.666667 74.666667 0 1 0 170.666667 245.333333zM769.152 597.333333A128.128 128.128 0 0 0 640 726.485333 128.042667 128.042667 0 0 0 766.848 853.333333 128.128 128.128 0 0 0 896 724.181333 128.128 128.128 0 0 0 769.152 597.333333z"/>
   </svg>
 )
 
@@ -133,20 +105,9 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
     setConfirmTarget(null)
   }
 
-  const desktopNav = [
-    { label: t('hyperAi.title', 'Hyper AI'), page: 'hyper-ai', icon: Bot },
-    { label: t('sidebar.dashboard'), page: 'comprehensive', icon: BarChart3 },
-    { label: t('sidebar.aiTrader', 'AI Trader'), page: 'trader-management', icon: Ghost },
-    { label: t('sidebar.prompts', 'Prompts'), page: 'prompt-management', icon: NotebookPen },
-    { label: t('sidebar.programTrader', 'Program Trader'), page: 'program-trader', icon: ScrollText },
-    { label: t('sidebar.signals', 'Signals'), page: 'signal-management', icon: SignalIcon },
-    { label: t('sidebar.attribution', 'Attribution'), page: 'attribution', icon: AttributionIcon },
-    { label: t('sidebar.factorLibrary', 'Factors'), page: 'factor-library', icon: FlaskConical },
-    { label: t('sidebar.manualTrading', 'Manual Trading'), page: 'hyperliquid', icon: Coins },
-    { label: t('sidebar.klines', 'K-Lines'), page: 'klines', icon: KLinesIcon },
-    { label: t('sidebar.premium', 'Advanced'), page: 'premium-features', icon: PremiumIcon },
-    { label: t('sidebar.systemLogs', 'System Logs'), page: 'system-logs', icon: FileText },
-  ] as const
+  const desktopNav = NAV_ITEMS
+    .filter((item) => isPageVisible(item.page))
+    .map((item) => ({ label: t(item.i18nKey, item.fallback), page: item.page, icon: item.icon }))
 
   const isTestnet = tradingMode === 'testnet'
 
@@ -158,14 +119,15 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
         {/* Top: Brand */}
         <div className="px-4 pt-4 pb-2">
           <div className="flex items-center gap-2">
-            <img src="/static/logo_app.png" alt="Logo" className="h-7 w-7 object-contain flex-shrink-0" />
-            <span className="text-base font-bold">Hyper Alpha Arena</span>
+            <img src={SITE_LOGO} alt="Logo" className="h-7 w-7 object-contain flex-shrink-0" />
+            <span className="text-base font-bold">{SITE_NAME}</span>
           </div>
         </div>
 
         {/* Environment: Exchange + Trading Mode */}
         <div className="px-3 pb-3 space-y-2">
           {/* Exchange */}
+          {productConfig.showExchangeSelector && (
           <div className="rounded-lg bg-muted/40 px-3 py-2">
             <span className="text-xs font-medium text-muted-foreground">{t('sidebar.exchange', 'Exchange')}</span>
             <button
@@ -183,8 +145,10 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
               </div>
             </button>
           </div>
+          )}
 
           {/* Trading Mode */}
+          {productConfig.showTradingModeToggle && (
           <div className="rounded-lg bg-muted/40 px-3 py-2">
             <span className="text-xs font-medium text-muted-foreground">{t('sidebar.tradingMode', 'Trading Mode')}</span>
             <TooltipProvider delayDuration={400}>
@@ -228,6 +192,7 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
               </div>
             </TooltipProvider>
           </div>
+          )}
         </div>
 
         {/* Middle: Navigation (scrollable) */}
@@ -259,12 +224,13 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
             <div className="flex items-center justify-around">
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
-                    className="p-2 rounded-md text-muted-foreground hover:text-[#B8860B] hover:bg-muted transition-colors"
-                    onClick={() => window.open('https://www.akooi.com/docs/guide/getting-started.html', '_blank', 'noopener,noreferrer')}
-                  >
-                    <HowToUseIcon className="w-4 h-4" />
-                  </button>
+                  <UsageGuideDialog>
+                    <button
+                      className="p-2 rounded-md text-muted-foreground hover:text-[#B8860B] hover:bg-muted transition-colors"
+                    >
+                      <HowToUseIcon className="w-4 h-4" />
+                    </button>
+                  </UsageGuideDialog>
                 </TooltipTrigger>
                 <TooltipContent side="top">
                   <p>{t('sidebar.howToUse', 'How to Use')}</p>
@@ -302,29 +268,16 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
                 </TooltipContent>
               </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    className="p-2 rounded-md text-muted-foreground hover:text-[#B8860B] hover:bg-muted transition-colors"
-                    onClick={() => window.open('https://github.com/HammerGPT/Hyper-Alpha-Arena', '_blank', 'noopener,noreferrer')}
-                  >
-                    <Github className="w-4 h-4" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="top">
-                  <p>GitHub</p>
-                </TooltipContent>
-              </Tooltip>
             </div>
           </TooltipProvider>
           <div className="text-center">
             <a
-              href="https://www.akooi.com"
+              href={SITE_URL}
               target="_blank"
               rel="noopener noreferrer"
               className="text-[10px] text-muted-foreground hover:text-foreground transition-colors"
             >
-              akooi.com
+              {SITE_NAME}
             </a>
             <span className="text-[10px] text-muted-foreground mx-1">·</span>
             <span className="text-[10px] text-muted-foreground">v{__APP_VERSION__}</span>
@@ -334,6 +287,7 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
 
       {/* Mobile Navigation - 4 tabs: Dashboard, K-Lines, Chat, Programs */}
       <nav className="md:hidden flex flex-row items-center justify-around fixed bottom-0 left-0 right-0 bg-background border-t h-16 px-2 z-50">
+        {isPageVisible('comprehensive') && (
         <button
           className={`flex flex-col items-center justify-center flex-1 h-12 rounded-lg transition-colors ${
             currentPage === 'comprehensive'
@@ -346,6 +300,8 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
           <BarChart3 className="w-5 h-5" />
           <span className="text-xs mt-1">Dashboard</span>
         </button>
+        )}
+        {isPageVisible('klines') && (
         <button
           className={`flex flex-col items-center justify-center flex-1 h-12 rounded-lg transition-colors ${
             currentPage === 'klines'
@@ -358,6 +314,8 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
           <KLinesIcon className="w-5 h-5" />
           <span className="text-xs mt-1">K-Lines</span>
         </button>
+        )}
+        {isPageVisible('model-chat') && (
         <button
           className={`flex flex-col items-center justify-center flex-1 h-12 rounded-lg transition-colors ${
             currentPage === 'model-chat'
@@ -370,6 +328,8 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
           <MessageSquare className="w-5 h-5" />
           <span className="text-xs mt-1">Chat</span>
         </button>
+        )}
+        {isPageVisible('program-trader') && (
         <button
           className={`flex flex-col items-center justify-center flex-1 h-12 rounded-lg transition-colors ${
             currentPage === 'program-trader'
@@ -382,6 +342,7 @@ export default function Sidebar({ currentPage = 'comprehensive', onPageChange, o
           <MobileProgramsIcon className="w-5 h-5" />
           <span className="text-xs mt-1">Programs</span>
         </button>
+        )}
       </nav>
 
       {/* Modals */}

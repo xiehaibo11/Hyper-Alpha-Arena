@@ -52,6 +52,7 @@ def serialize_account(
         "username": user.username if user else "unknown",
         "name": account.name,
         "account_type": account.account_type,
+        "exchange": getattr(account, "exchange", None) or "binance",
         "initial_capital": float(account.initial_capital),
         "current_cash": current_cash if current_cash is not None else float(account.current_cash),
         "frozen_cash": frozen_cash if frozen_cash is not None else float(account.frozen_cash),

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, forwardRef } from 'react'
 import { useTranslation } from 'react-i18next'
 import {
   Dialog,
@@ -10,7 +10,7 @@ import {
 import { TwitterIcon, TelegramIcon, CommunityIcon } from './ContactIcons'
 import { getContactConfig, ContactConfig } from '@/lib/contactApi'
 
-interface ContactDialogProps {
+interface ContactDialogProps extends React.HTMLAttributes<HTMLElement> {
   children: React.ReactNode
 }
 
@@ -26,7 +26,8 @@ function extractDomain(url: string | null | undefined): string | null {
   }
 }
 
-export default function ContactDialog({ children }: ContactDialogProps) {
+const ContactDialog = forwardRef<HTMLElement, ContactDialogProps>(
+  function ContactDialog({ children, ...triggerProps }, ref) {
   const { t } = useTranslation()
   const [config, setConfig] = useState<ContactConfig | null>(null)
 
@@ -57,7 +58,7 @@ export default function ContactDialog({ children }: ContactDialogProps) {
 
   return (
     <Dialog>
-      <DialogTrigger asChild>{children}</DialogTrigger>
+      <DialogTrigger asChild ref={ref} {...triggerProps}>{children}</DialogTrigger>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-center">
@@ -95,4 +96,6 @@ export default function ContactDialog({ children }: ContactDialogProps) {
       </DialogContent>
     </Dialog>
   )
-}
+})
+
+export default ContactDialog

@@ -224,6 +224,7 @@ def create_new_account(payload: dict, db: Session = Depends(get_db)):
             version="v1",
             name=name,
             account_type=payload.get("account_type", "AI"),
+            exchange=payload.get("exchange", "binance"),
             model=payload.get("model", "gpt-4-turbo"),
             base_url=payload.get("base_url", "https://api.openai.com/v1"),
             api_key=payload.get("api_key", ""),
@@ -278,6 +279,8 @@ def update_account_settings(account_id: int, payload: dict, db: Session = Depend
             if not name:
                 raise HTTPException(status_code=400, detail="Account name cannot be empty")
             account.name = name
+        if "exchange" in payload:
+            account.exchange = payload.get("exchange") or "binance"
         if "model" in payload:
             account.model = payload.get("model") or None
         if "base_url" in payload:

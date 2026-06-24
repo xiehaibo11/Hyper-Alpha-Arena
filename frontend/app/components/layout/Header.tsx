@@ -12,6 +12,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { useAuth } from '@/contexts/AuthContext'
 import { useCurrentExchangeInfo } from '@/contexts/ExchangeContext'
 import { useEnterToSend } from '@/hooks/useEnterToSend'
+import { SITE_NAME } from '@/lib/branding'
 
 interface Account {
   id: number
@@ -29,7 +30,7 @@ interface HeaderProps {
   showAccountSelector?: boolean
 }
 
-export default function Header({ title = 'Hyper Alpha Arena', currentAccount, showAccountSelector = false }: HeaderProps) {
+export default function Header({ title = SITE_NAME, currentAccount, showAccountSelector = false }: HeaderProps) {
   const { t } = useTranslation()
   const { user, loading, authEnabled, login, logout } = useAuth()
   const currentExchangeInfo = useCurrentExchangeInfo()

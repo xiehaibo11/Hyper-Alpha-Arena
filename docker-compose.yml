@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:14
+    image: postgres:16
     container_name: hyper-arena-postgres
     environment:
       POSTGRES_USER: alpha_user
@@ -10,7 +10,9 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
     ports:
-      - "127.0.0.1:5432:5432"
+      # Host 5432 is used by a native postgres on this Mac, so publish on 5433.
+      # Containers still talk to each other via the internal hostname `postgres:5432`.
+      - "127.0.0.1:5433:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U alpha_user -d alpha_arena"]
       interval: 10s
@@ -30,6 +32,11 @@ services:
         HTTPS_PROXY: ${HTTPS_PROXY-}
         ALL_PROXY: ${ALL_PROXY-}
     container_name: hyper-arena-app
+    # Load secrets (e.g. EVENT_CONTRACT_LLM_*) from the gitignored backend/.env.
+    # `environment:` below takes precedence, so the container DATABASE_URL stays
+    # the internal postgres:5432 (not backend/.env's localhost value).
+    env_file:
+      - ./backend/.env
     environment:
       # Database connection
       DATABASE_URL: postgresql://alpha_user:alpha_pass@postgres:5432/alpha_arena
@@ -96,6 +103,7 @@ services:
 
       # Backend subdirectories
       - ./backend/api:/app/backend/api
+      - ./backend/app_bootstrap:/app/backend/app_bootstrap
       - ./backend/backtest:/app/backend/backtest
       - ./backend/config:/app/backend/config
       - ./backend/database:/app/backend/database

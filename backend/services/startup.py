@@ -67,6 +67,18 @@ def initialize_services():
         )
         logger.info("Price cache cleanup task started (2-minute interval)")
 
+        # Event-contract signal system: open signals + settle, once per minute
+        try:
+            from services.event_contract.simulator import run_cycle as ec_run_cycle
+            task_scheduler.add_interval_task(
+                task_func=ec_run_cycle,
+                interval_seconds=60,
+                task_id="event_contract_cycle",
+            )
+            logger.info("Event-contract simulator started (60-second interval)")
+        except Exception as e:
+            logger.warning(f"Event-contract simulator not started: {e}")
+
         # Start market data stream
         # NOTE: Paper trading snapshot service disabled - using Hyperliquid snapshots only
         combined_symbols = build_market_stream_symbols()
